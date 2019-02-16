@@ -41,3 +41,7 @@
 - Debugged some ffmpeg issues and discovered that they were file system issues
     - Wrote a script to cleanup file names
 - Debugged some long path issues, which I resolved at the file loading level for ffmpeg
+
+# Feb 15, 2019 #
+
+- Added a function to update the records of an arbitrary collection with a default value for a given field

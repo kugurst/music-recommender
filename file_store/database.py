@@ -17,7 +17,8 @@ DB_BAD_SONG_REPRESENTATIONS = "bad_song_representations"
 DB_RECORD_FIELD = "__id"
 
 __all__ = ["Database", "DB_GOOD_SONG_PATHS", "DB_BAD_SONG_PATHS", "DB_GOOD_SONG_REPRESENTATIONS",
-           "DB_BAD_SONG_REPRESENTATIONS", "DB_RECORD_FIELD"]
+           "DB_BAD_SONG_REPRESENTATIONS", "DB_RECORD_FIELD", "update_collection_with_field",
+           "remove_field_from_collection"]
 
 
 class Database(object):
@@ -53,6 +54,7 @@ class Database(object):
         SONG_HASH = "hash"
         SONG_PATH = "path"
         REPRESENTATION_BUILT = "representation_built"
+        FFTS_BUILT = "ffts_built"
 
     class SongRepresentationODBC(enum.Enum):
         SONG_HASH = "hash"
@@ -60,3 +62,35 @@ class Database(object):
         SONG_SPCS_RIGHT = "spectrograms_right"
         SONG_SAMPLES_LEFT = "samples_left"
         SONG_SAMPLES_RIGHT = "samples_right"
+
+
+def update_collection_with_field(collection, field, default, updates_between_commits=100, db=None):
+    if not db:
+        db = Database.db
+
+    db.begin()
+    for idx in range(len(collection)):
+        if idx % updates_between_commits == updates_between_commits - 1:
+            db.commit()
+            db.begin()
+        record = collection.fetch(idx)
+        if field not in record:
+            record[field] = default
+            collection.update(record[DB_RECORD_FIELD], record)
+    db.commit()
+
+
+def remove_field_from_collection(collection, field, updates_between_commits=100, db=None):
+    if not db:
+        db = Database.db
+
+    db.begin()
+    for idx in range(len(collection)):
+        if idx % updates_between_commits == updates_between_commits - 1:
+            db.commit()
+            db.begin()
+        record = collection.fetch(idx)
+        if field in record:
+            del record[field]
+            collection.update(record[DB_RECORD_FIELD], record)
+    db.commit()
