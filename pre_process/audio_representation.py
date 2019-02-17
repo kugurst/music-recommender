@@ -10,7 +10,7 @@ from scipy import signal
 from scipy.fftpack import fft
 
 from file_store import database
-from file_store.database import Database
+from file_store.database import *
 from file_store.store import FileStore
 from music.song import Song
 
@@ -28,29 +28,31 @@ FRAME_RATE = 44100
 
 def build_song_indexes():
     #: :type: unqlite.Collection
-    good_songs_collection = Database.db.collection(database.DB_GOOD_SONG_PATHS)
+    good_songs_collection = SongInfoDatabase.db.collection(database.DB_GOOD_SONGS)
     #: :type: unqlite.Collection
-    bad_songs_collection = Database.db.collection(database.DB_BAD_SONG_PATHS)
+    bad_songs_collection = SongInfoDatabase.db.collection(database.DB_BAD_SONGS)
 
     for collection in [good_songs_collection, bad_songs_collection]:
         if not collection.exists():
             collection.create()
 
     every_hash = set()
-    with Database.db.transaction():
+    with SongInfoDatabase.db.transaction():
         for collection, root_dir in [(good_songs_collection, FileStore.good_songs_dir),
                                      (bad_songs_collection, FileStore.bad_songs_dir)]:
             all_elements = collection.all()
-            every_hash.update({Database.SongPathODBC.SONG_HASH.get_value(elem) for elem in all_elements})
+            every_hash.update({SongInfoDatabase.SongInfoODBC.SONG_HASH.get_value(elem) for elem in all_elements})
             for dir_name, subdir_list, file_list in os.walk(root_dir, topdown=False):
                 for fn in file_list:
                     song_path = os.path.join(root_dir, dir_name, fn)
+                    song = Song(song_path)
                     song_path_hash = Song.compute_path_hash(song_path.encode())
                     if not song_path_hash:
                         raise ValueError("Failed to hash path: [{}]".format(song_path))
 
                     if song_path_hash not in every_hash:
-                        record = Database.SongPathODBC.initialize_record(song_path_hash, song_path)
+                        record = SongInfoDatabase.SongInfoODBC.initialize_record(song_path_hash, song_path, None,
+                                                                                 song.song.getframerate())
                         collection.store(record)
                         __logger__.debug("Adding song: [{}]".format(song_path))
                         every_hash.add(song_path_hash)
@@ -62,16 +64,16 @@ def build_song_indexes():
 # <editor-fold desc="build samples from the songs">
 def build_song_samples():
     #: :type: unqlite.Collection
-    good_song_paths_collection = Database.db.collection(database.DB_GOOD_SONG_PATHS)
+    good_song_paths_collection = SongInfoDatabase.db.collection(database.DB_GOOD_SONGS)
     #: :type: unqlite.Collection
-    bad_song_paths_collection = Database.db.collection(database.DB_BAD_SONG_PATHS)
+    bad_song_paths_collection = SongInfoDatabase.db.collection(database.DB_BAD_SONGS)
 
     #: :type: unqlite.Collection
-    good_song_spc_collection = Database.db.collection(database.DB_GOOD_SONG_REPRESENTATIONS)
+    good_song_samples_collection = SongSamplesDatabase.db.collection(database.DB_GOOD_SONGS)
     #: :type: unqlite.Collection
-    bad_song_spc_collection = Database.db.collection(database.DB_BAD_SONG_REPRESENTATIONS)
+    bad_song_samples_collection = SongSamplesDatabase.db.collection(database.DB_BAD_SONGS)
 
-    for collection in [good_song_spc_collection, bad_song_spc_collection]:
+    for collection in [good_song_samples_collection, bad_song_samples_collection]:
         if not collection.exists():
             collection.create()
 
@@ -79,20 +81,21 @@ def build_song_samples():
         input_queue = manager.Queue()
         result_queue = manager.Queue(_max_result_queue_len)
 
+        # Load the input queue
         for song_paths_collection, is_good_song in [(good_song_paths_collection, True),
                                                     (bad_song_paths_collection, False)]:
             all_elements = song_paths_collection.all()
             for elem in all_elements:
-                if not Database.SongPathODBC.SAMPLES_BUILT.get_value(elem):
+                if SongInfoDatabase.SongInfoODBC.SONG_SAMPLES_ID.get_value(elem) is None:
                     input_queue.put((elem[database.DB_RECORD_FIELD], is_good_song,
-                                     Database.SongPathODBC.SONG_HASH.get_value(elem),
-                                     Database.SongPathODBC.SONG_PATH.get_value(elem)
+                                     SongInfoDatabase.SongInfoODBC.SONG_HASH.get_value(elem),
+                                     SongInfoDatabase.SongInfoODBC.SONG_PATH.get_value(elem)
                                      ))
 
         del good_song_paths_collection
         del bad_song_paths_collection
-        del good_song_spc_collection
-        del bad_song_spc_collection
+        del good_song_samples_collection
+        del bad_song_samples_collection
 
         # Start the song samplers
         samplers = []
@@ -114,11 +117,11 @@ def _sample_songs(input_queue, result_queue):
 
     while True:
         try:
-            id, is_good_song, song_hash, song_path = input_queue.get_nowait()
+            song_path_id, is_good_song, song_hash, song_path = input_queue.get_nowait()
         except queue.Empty:
             break
         else:
-            song = Song(song_path)
+            song = Song(song_path, True)
 
             __logger__.debug("Sampling sequences for song: [{}]".format(song.path))
 
@@ -131,11 +134,11 @@ def _sample_songs(input_queue, result_queue):
                 NUMBER_OF_RANDOM_SAMPLES, SECONDS_PER_RANDOM_SAMPLES, left_samples, right_samples, frame_rate
             )
 
-            result_queue.put((id,
+            result_queue.put((song_path_id,
                               song_hash,
                               is_good_song,
-                              Database.SongRepresentationODBC.serialize_object(left_samples_sets),
-                              Database.SongRepresentationODBC.serialize_object(right_samples_sets),
+                              SongSamplesDatabase.SongSamplesODBC.serialize_object(left_samples_sets),
+                              SongSamplesDatabase.SongSamplesODBC.serialize_object(right_samples_sets),
                               ))
 
     result_queue.put(1)
@@ -159,26 +162,31 @@ def _select_random_samples_sets(num_selection, seconds_per_selection, left_sampl
 
 def _store_sampled_songs(result_queue, worker_count):
     #: :type: unqlite.Collection
-    good_song_paths_collection = Database.db.collection(database.DB_GOOD_SONG_PATHS)
+    good_song_info_collection = SongInfoDatabase.db.collection(database.DB_GOOD_SONGS)
     #: :type: unqlite.Collection
-    bad_song_paths_collection = Database.db.collection(database.DB_BAD_SONG_PATHS)
+    bad_song_info_collection = SongInfoDatabase.db.collection(database.DB_BAD_SONGS)
 
     #: :type: unqlite.Collection
-    good_song_representation_collection = Database.db.collection(database.DB_GOOD_SONG_REPRESENTATIONS)
+    good_song_representation_collection = SongSamplesDatabase.db.collection(database.DB_GOOD_SONGS)
     #: :type: unqlite.Collection
-    bad_song_representation_collection = Database.db.collection(database.DB_BAD_SONG_REPRESENTATIONS)
+    bad_song_representation_collection = SongSamplesDatabase.db.collection(database.DB_BAD_SONGS)
 
     done_workers = 0
     songs_written = 0
 
+    SongSamplesDatabase.db.begin()
+    SongInfoDatabase.db.begin()
     while True:
         try:
             __logger__.debug("Storer: retrieveing next song")
-            db_song_id, song_hash, is_good_song, left_samples_sets, right_samples_sets = result_queue.get()
-            if songs_written == 0:
-                __logger__.debug("Storer: new database batch set".format(db_song_id))
-                Database.db.begin()
-            __logger__.debug("Storer: got song [{}]".format(db_song_id))
+            song_info_id, song_hash, is_good_song, left_samples_sets, right_samples_sets = result_queue.get()
+            __logger__.debug("Storer: got song [{}]".format(song_info_id))
+            if songs_written % _store_batch_size == _store_batch_size - 1:
+                __logger__.debug("Storer: committing previous [{}] songs".format(_store_batch_size))
+                SongSamplesDatabase.db.commit()
+                SongInfoDatabase.db.commit()
+                SongSamplesDatabase.db.begin()
+                SongInfoDatabase.db.begin()
         except TypeError:
             done_workers += 1
             if done_workers == worker_count:
@@ -186,31 +194,27 @@ def _store_sampled_songs(result_queue, worker_count):
         except queue.Empty:
             continue
         else:
-            song_representation_collection = good_song_representation_collection if is_good_song else \
+            song_samples_collection = good_song_representation_collection if is_good_song else \
                 bad_song_representation_collection
-            song_paths_collection = good_song_paths_collection if is_good_song else bad_song_paths_collection
+            song_info_collection = good_song_info_collection if is_good_song else bad_song_info_collection
 
-            db_song = song_paths_collection.fetch(db_song_id)
+            song_info = song_info_collection.fetch(song_info_id)
 
             __logger__.debug("Storer: Song [{}] is named [{}]".format(
-                db_song_id, os.path.basename(Database.SongPathODBC.SONG_PATH.get_value(db_song))
+                song_info_id, os.path.basename(SongInfoDatabase.SongInfoODBC.SONG_PATH.get_value(song_info))
             ))
 
-            record = Database.SongRepresentationODBC.initialize_record(
-                song_hash, left_samples_sets, right_samples_sets
+            song_sample = SongSamplesDatabase.SongSamplesODBC.initialize_record(
+                song_hash, song_info_id, left_samples_sets, right_samples_sets
             )
-            song_representation_collection.store(record)
-            Database.SongPathODBC.SAMPLES_BUILT.set_value(db_song, True)
-            song_paths_collection.update(db_song[database.DB_RECORD_FIELD], db_song)
+            song_samples_collection.store(song_sample)
+            SongInfoDatabase.SongInfoODBC.SONG_SAMPLES_ID.set_value(song_info, songs_written)
+            song_info_collection.update(song_info[database.DB_RECORD_FIELD], song_info)
 
             songs_written += 1
 
-            if songs_written == _store_batch_size:
-                songs_written = 0
-                __logger__.debug("Storer: close database batch set".format(db_song_id))
-                Database.db.commit()
-
             __logger__.debug("Storer: songs waiting to be written: [{}]".format(result_queue.qsize()))
 
-    Database.db.commit()
+    SongSamplesDatabase.db.commit()
+    SongInfoDatabase.db.commit()
 # </editor-fold>

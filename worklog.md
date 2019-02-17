@@ -56,3 +56,9 @@
  15 samples, which are each 5 seconds long.
     - Savings in somputation space don't seem commiserate with disk space usage and eventual pipelining 
     implementation, abandoning storing the data like this
+    - It only takes 36 minutes in this case
+
+# Feb 17, 2019 #
+
+- Adding the sample rate of songs to the database
+

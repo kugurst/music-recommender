@@ -1,3 +1,4 @@
+import aifc
 import base64
 import hashlib
 import os
@@ -23,15 +24,17 @@ except KeyError:
 
 
 class Song(object):
-    def __init__(self, path):
+    def __init__(self, path, use_audio_segment=False):
         self.__hash = None
         self.__path = path
 
-        # self.song = aifc.open(path, 'rb')
         if os_utils.is_windows():
-            self.song = AudioSegment.from_file("\\\\?\\" + path)
-        else:
+            path = "\\\\?\\" + path
+
+        if use_audio_segment:
             self.song = AudioSegment.from_file(path)
+        else:
+            self.song = aifc.open(path, 'rb')
 
     @property
     def path(self):

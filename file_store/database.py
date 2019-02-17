@@ -1,8 +1,10 @@
+import abc
 import atexit
 import base64
 import enum
 import os
 import pickle
+import six
 import traceback
 
 from util.class_property import ClassProperty
@@ -10,17 +12,15 @@ from util.class_property import ClassProperty
 from unqlite import UnQLite
 
 
-_DATABASE_FN_ENV = "DATABASE_PATH"
+_SONG_INFO_DATABASE_FN_ENV = "SONG_INFO_DATABASE_PATH"
+_SONG_SAMPLES_DATABASE_FN_ENV = "SONG_SAMPLES_DATABASE_PATH"
 
-DB_GOOD_SONG_PATHS = "good_song_indexes"
-DB_BAD_SONG_PATHS = "bad_song_indexes"
-DB_GOOD_SONG_REPRESENTATIONS = "good_song_representations"
-DB_BAD_SONG_REPRESENTATIONS = "bad_song_representations"
+DB_GOOD_SONGS = "good_song_indexes"
+DB_BAD_SONGS = "bad_song_indexes"
 DB_RECORD_FIELD = "__id"
 
-__all__ = ["Database", "DB_GOOD_SONG_PATHS", "DB_BAD_SONG_PATHS", "DB_GOOD_SONG_REPRESENTATIONS",
-           "DB_BAD_SONG_REPRESENTATIONS", "DB_RECORD_FIELD", "update_collection_with_field",
-           "remove_field_from_collection"]
+__all__ = ["SongInfoDatabase", "DB_GOOD_SONGS", "DB_BAD_SONGS", "DB_RECORD_FIELD", "update_collection_with_field",
+           "remove_field_from_collection", "SongSamplesDatabase"]
 
 
 class ODBCGetSetEnumMixin(object):
@@ -47,6 +47,14 @@ class ODBCGetSetEnumMixin(object):
         else:
             record[self.value[0]] = value
 
+    def has_value(self, record):
+        if self.value[0] in record:
+            return True
+        return False
+
+    def remove_value(self, record):
+        del record[self.value[0]]
+
     @staticmethod
     def serialize_object(value):
         return pickle.dumps(value, pickle.HIGHEST_PROTOCOL)
@@ -71,24 +79,23 @@ class ODBCInitEnumMixin(object):
         return ret
 
 
-class Database(object):
-    __database = None
-
+@six.add_metaclass(abc.ABCMeta)
+class BaseDatabase(object):
     @ClassProperty
     @classmethod
     def db(cls):
-        if Database.__database is not None:
-            return Database.__database
+        if cls._database is not None:
+            return cls._database
         else:
-            Database.__database = UnQLite(Database.database_file)
-            atexit.register(Database.__database.close)
-            return Database.__database
+            cls._database = UnQLite(cls.database_file)
+            atexit.register(cls._database.close)
+            return cls._database
 
     @ClassProperty
     @classmethod
     def database_file(cls):
         try:
-            db_fn = os.environ[_DATABASE_FN_ENV]
+            db_fn = os.environ[cls.database_fn_env()]
             try:
                 if not os.path.exists(db_fn):
                     with open(db_fn, 'ab+'):
@@ -98,46 +105,70 @@ class Database(object):
             return db_fn
         except KeyError:
             raise EnvironmentError("[{}] is not specified. Specify the intended path to the database file (will be "
-                                   "created if it does not exist)".format(_DATABASE_FN_ENV))
+                                   "created if it does not exist)".format(cls.database_fn_env()))
 
-    class SongPathODBC(ODBCInitEnumMixin, ODBCGetSetEnumMixin, enum.Enum):
+    @abc.abstractmethod
+    def database_fn_env(cls):
+        pass
+
+
+class SongInfoDatabase(BaseDatabase):
+    _database = None
+
+    @classmethod
+    def database_fn_env(cls):
+        return _SONG_INFO_DATABASE_FN_ENV
+
+    class SongInfoODBC(ODBCInitEnumMixin, ODBCGetSetEnumMixin, enum.Enum):
         SONG_HASH = ["hash", str, None]
         SONG_PATH = ["path", str, None]
-        SAMPLES_BUILT = ["samples_built", bool, False]
+        SONG_SAMPLES_ID = ["samples_id", int, None]
+        SONG_SAMPLE_RATE = ["sample_rate", int, None]
 
-    class SongRepresentationODBC(ODBCInitEnumMixin, ODBCGetSetEnumMixin, enum.Enum):
+
+class SongSamplesDatabase(BaseDatabase):
+    _database = None
+
+    @classmethod
+    def database_fn_env(cls):
+        return _SONG_SAMPLES_DATABASE_FN_ENV
+
+    class SongSamplesODBC(ODBCInitEnumMixin, ODBCGetSetEnumMixin, enum.Enum):
         SONG_HASH = ["hash", str, None]
+        SONG_INFO_ID = ["info_id", int, None]
         SONG_SAMPLES_LEFT = ["samples_left", object, None]
         SONG_SAMPLES_RIGHT = ["samples_right", object, None]
 
 
-def update_collection_with_field(collection, field, default, updates_between_commits=100, db=None):
+def update_collection_with_field(collection, field, default, db, updates_between_commits=100):
     if not db:
-        db = Database.db
+        db = SongInfoDatabase.db
 
     db.begin()
     for idx in range(len(collection)):
         if idx % updates_between_commits == updates_between_commits - 1:
             db.commit()
             db.begin()
+
         record = collection.fetch(idx)
-        if field not in record:
-            record[field] = default
+        if not field.has_value(record):
+            field.set_value(record, default)
             collection.update(record[DB_RECORD_FIELD], record)
     db.commit()
 
 
-def remove_field_from_collection(collection, field, updates_between_commits=100, db=None):
+def remove_field_from_collection(collection, field, db, updates_between_commits=100):
     if not db:
-        db = Database.db
+        db = SongInfoDatabase.db
 
     db.begin()
     for idx in range(len(collection)):
         if idx % updates_between_commits == updates_between_commits - 1:
             db.commit()
             db.begin()
+
         record = collection.fetch(idx)
-        if field in record:
-            del record[field]
+        if field.has_value(record):
+            field.remove_value(record)
             collection.update(record[DB_RECORD_FIELD], record)
     db.commit()
