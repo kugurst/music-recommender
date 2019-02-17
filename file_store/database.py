@@ -1,6 +1,8 @@
 import atexit
+import base64
 import enum
 import os
+import pickle
 import traceback
 
 from util.class_property import ClassProperty
@@ -19,6 +21,54 @@ DB_RECORD_FIELD = "__id"
 __all__ = ["Database", "DB_GOOD_SONG_PATHS", "DB_BAD_SONG_PATHS", "DB_GOOD_SONG_REPRESENTATIONS",
            "DB_BAD_SONG_REPRESENTATIONS", "DB_RECORD_FIELD", "update_collection_with_field",
            "remove_field_from_collection"]
+
+
+class ODBCGetSetEnumMixin(object):
+    def get_value(self, record, raw=False):
+        if self.value[0] in record:
+            value = record[self.value[0]]
+            if raw:
+                return value
+
+            if self.value[1] is str:
+                return value.decode('utf-8')
+            elif self.value[1] is object:
+                return ODBCGetSetEnumMixin.deserialize_object(value)
+            else:
+                return value
+        else:
+            return self.value[-1]
+
+    def set_value(self, record, value):
+        if self.value[1] is str:
+            record[self.value[0]] = value.encode()
+        elif self.value[1] is object:
+            record[self.value[0]] = base64.urlsafe_b64encode(value)
+        else:
+            record[self.value[0]] = value
+
+    @staticmethod
+    def serialize_object(value):
+        return pickle.dumps(value, pickle.HIGHEST_PROTOCOL)
+
+    @staticmethod
+    def deserialize_object(value):
+        return pickle.loads(base64.urlsafe_b64decode(value))
+
+
+class ODBCInitEnumMixin(object):
+    @classmethod
+    def initialize_record(cls, *values):
+        ret = dict()
+        for idx, field in enumerate(cls):
+            if idx < len(values):
+                value = values[idx]
+            else:
+                continue
+                # value = field.value[-1]
+            field.set_value(ret, value)
+
+        return ret
 
 
 class Database(object):
@@ -50,18 +100,20 @@ class Database(object):
             raise EnvironmentError("[{}] is not specified. Specify the intended path to the database file (will be "
                                    "created if it does not exist)".format(_DATABASE_FN_ENV))
 
-    class SongPathODBC(enum.Enum):
-        SONG_HASH = "hash"
-        SONG_PATH = "path"
-        REPRESENTATION_BUILT = "representation_built"
-        FFTS_BUILT = "ffts_built"
+    class SongPathODBC(ODBCInitEnumMixin, ODBCGetSetEnumMixin, enum.Enum):
+        SONG_HASH = ["hash", str, None]
+        SONG_PATH = ["path", str, None]
+        REPRESENTATION_BUILT = ["representation_built", bool, False]
+        FFTS_BUILT = ["ffts_built", bool, False]
 
-    class SongRepresentationODBC(enum.Enum):
-        SONG_HASH = "hash"
-        SONG_SPCS_LEFT = "spectrograms_left"
-        SONG_SPCS_RIGHT = "spectrograms_right"
-        SONG_SAMPLES_LEFT = "samples_left"
-        SONG_SAMPLES_RIGHT = "samples_right"
+    class SongRepresentationODBC(ODBCInitEnumMixin, ODBCGetSetEnumMixin, enum.Enum):
+        SONG_HASH = ["hash", str, None]
+        SONG_SPCS_LEFT = ["spectrograms_left", object, None]
+        SONG_SPCS_RIGHT = ["spectrograms_right", object, None]
+        SONG_SAMPLES_LEFT = ["samples_left", object, None]
+        SONG_SAMPLES_RIGHT = ["samples_right", object, None]
+        SONG_FFT_LEFT = ["fft_left", object, None]
+        SONG_FFT_RIGHT = ["fft_right", object, None]
 
 
 def update_collection_with_field(collection, field, default, updates_between_commits=100, db=None):

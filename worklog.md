@@ -45,3 +45,10 @@
 # Feb 15, 2019 #
 
 - Added a function to update the records of an arbitrary collection with a default value for a given field
+- Added an "FFT_BUILT" section to the song database
+- Discovered that unqlite is not properly retrieving/storing pickled data. Will need to change backend
+
+# Feb 16, 2019 #
+
+- Found a way to fix the DB issue by encoding the binary data in base64 before writing to the database
+- It takes about 57 minutes to process the entire music library, written to my fastest SSD
