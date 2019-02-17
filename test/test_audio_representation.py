@@ -7,9 +7,5 @@ def test_build_song_indexes():
     build_song_indexes()
 
 
-def test_build_song_representation():
-    build_song_representation()
-
-
-def test_build_song_ffts():
-    build_song_ffts()
+def test_build_song_samples():
+    build_song_samples()

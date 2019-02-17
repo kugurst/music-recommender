@@ -52,3 +52,7 @@
 
 - Found a way to fix the DB issue by encoding the binary data in base64 before writing to the database
 - It takes about 57 minutes to process the entire music library, written to my fastest SSD
+- Benchmarked and realized it only takes about a second to compute the FFTs and spectrograms each of a given song for
+ 15 samples, which are each 5 seconds long.
+    - Savings in somputation space don't seem commiserate with disk space usage and eventual pipelining 
+    implementation, abandoning storing the data like this

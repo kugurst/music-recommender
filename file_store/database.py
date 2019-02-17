@@ -103,17 +103,12 @@ class Database(object):
     class SongPathODBC(ODBCInitEnumMixin, ODBCGetSetEnumMixin, enum.Enum):
         SONG_HASH = ["hash", str, None]
         SONG_PATH = ["path", str, None]
-        REPRESENTATION_BUILT = ["representation_built", bool, False]
-        FFTS_BUILT = ["ffts_built", bool, False]
+        SAMPLES_BUILT = ["samples_built", bool, False]
 
     class SongRepresentationODBC(ODBCInitEnumMixin, ODBCGetSetEnumMixin, enum.Enum):
         SONG_HASH = ["hash", str, None]
-        SONG_SPCS_LEFT = ["spectrograms_left", object, None]
-        SONG_SPCS_RIGHT = ["spectrograms_right", object, None]
         SONG_SAMPLES_LEFT = ["samples_left", object, None]
         SONG_SAMPLES_RIGHT = ["samples_right", object, None]
-        SONG_FFT_LEFT = ["fft_left", object, None]
-        SONG_FFT_RIGHT = ["fft_right", object, None]
 
 
 def update_collection_with_field(collection, field, default, updates_between_commits=100, db=None):
