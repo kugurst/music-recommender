@@ -1,5 +1,6 @@
-from file_store import database
+import pickle
 
+from file_store import database
 from file_store.database import *
 
 
@@ -31,3 +32,28 @@ def test_remove_ffts_built_enum():
 
     remove_field_from_collection(good_song_paths_collection, str(SongInfoDatabase.SongInfoODBC.FFTS_BUILT))
     remove_field_from_collection(bad_song_paths_collection, str(SongInfoDatabase.SongInfoODBC.FFTS_BUILT))
+
+
+def test_get_sample_song():
+    #: :type: unqlite.Collection
+    good_song_samples_collection = SongSamplesDatabase.db.collection(database.DB_GOOD_SONGS)
+
+    record = good_song_samples_collection.fetch(0)
+    with open("sample_song_record.pickle", 'wb') as pickle_file:
+        pickle.dump(record, pickle_file, protocol=pickle.HIGHEST_PROTOCOL)
+
+
+def test_SongSamplesLVLDatabase():
+    with open("sample_song_record.pickle", 'rb') as pickle_file:
+        record = pickle.load(pickle_file)
+
+    del record[database.DB_RECORD_FIELD]
+
+    print(SongSamplesLVLDatabase.SongSamplesIndex.len())
+    # print(SongSamplesLVLDatabase.SongSamplesIndex.all())
+
+    print(SongSamplesLVLDatabase.SongSamplesIndex.fetch(0))
+
+    # SongSamplesLVLDatabase.SongSamplesIndex.begin()
+    # SongSamplesLVLDatabase.SongSamplesIndex.store(record)
+    # SongSamplesLVLDatabase.SongSamplesIndex.commit()
