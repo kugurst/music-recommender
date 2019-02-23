@@ -22,7 +22,21 @@ DB_BAD_SONGS = "bad_song_indexes"
 DB_RECORD_FIELD = "__id"
 
 __all__ = ["SongInfoDatabase", "DB_GOOD_SONGS", "DB_BAD_SONGS", "DB_RECORD_FIELD", "update_collection_with_field",
-           "remove_field_from_collection", "SongSamplesDatabase", "SongSamplesLVLDatabase"]
+           "remove_field_from_collection", "SongSamplesDatabase", "SongSamplesLVLDatabase", "SongSampleRecord"]
+
+
+class SongSampleRecord(object):
+    def __init__(self):
+        #: :type: str
+        self.hash = None
+        #: :type: int
+        self.info_id = None
+        #: :type: bool
+        self.is_good_song = None
+        #: :type: list[numpy.ndarray]
+        self.samples_left = None
+        #: :type: list[numpy.ndarray]
+        self.samples_right = None
 
 
 class ODBCGetSetEnumMixin(object):
@@ -44,6 +58,8 @@ class ODBCGetSetEnumMixin(object):
     def set_value(self, record, value):
         if self.value[1] is str:
             record[self.value[0]] = value.encode()
+        elif self.value[1] is bool:
+            record[self.value[0]] = bytes(value)
         elif self.value[1] is object:
             record[self.value[0]] = base64.urlsafe_b64encode(value)
         else:
@@ -138,6 +154,7 @@ class SongSamplesDatabase(BaseDatabase):
     class SongSamplesODBC(ODBCInitEnumMixin, ODBCGetSetEnumMixin, enum.Enum):
         SONG_HASH = ["hash", str, None]
         SONG_INFO_ID = ["info_id", int, None]
+        SONG_IS_GOOD = ["is_good_song", bool, None]
         SONG_SAMPLES_LEFT = ["samples_left", object, None]
         SONG_SAMPLES_RIGHT = ["samples_right", object, None]
 
@@ -223,9 +240,9 @@ class SongSamplesLVLDatabase(object):
             pass
 
         @classmethod
-        def fetch(cls, idx):
+        def fetch(cls, idx) -> SongSampleRecord:
             if isinstance(idx, int):
-                hash = cls.__index[idx]
+                hash = cls.__index[idx * 2]
             else:
                 hash = idx.encode()
 
@@ -239,7 +256,7 @@ class SongSamplesLVLDatabase(object):
                 value_map[field.value[0]] = value
 
             value_map = SongSamplesLVLDatabase.SongSamplesODBC.load_from_bytes(value_map)
-            value_map[DB_RECORD_FIELD] = cls.__index[hash]
+            value_map[DB_RECORD_FIELD] = cls.__index[hash] / 2
             return value_map
 
         @classmethod
@@ -272,15 +289,18 @@ class SongSamplesLVLDatabase(object):
                 return value.encode()
             elif isinstance(value, int):
                 return str(value).encode()
+            elif isinstance(value, bool):
+                return bytes(value)
             elif isinstance(value, bytes):
                 return value
             else:
                 return base64.urlsafe_b64encode(pickle.dumps(value, protocol=pickle.HIGHEST_PROTOCOL))
             pass
 
-    class SongSamplesODBC(enum.Enum):
+    class SongSamplesODBC(ODBCGetSetEnumMixin, enum.Enum):
         SONG_HASH = ["hash", str, None]
         SONG_INFO_ID = ["info_id", int, None]
+        SONG_IS_GOOD = ["is_good_song", bool, None]
         SONG_SAMPLES_LEFT = ["samples_left", object, None]
         SONG_SAMPLES_RIGHT = ["samples_right", object, None]
 
@@ -297,22 +317,17 @@ class SongSamplesLVLDatabase(object):
         def convert_from_bytes(self, value):
             if self.value[1] is str:
                 return value.decode('utf-8')
-            if self.value[1] is int:
+            elif self.value[1] is int:
                 return int(value.decode('utf-8'))
+            elif self.value[1] is bool:
+                return bool(value)
             elif self.value[1] is object:
                 return ODBCGetSetEnumMixin.deserialize_object(value)
             else:
                 return value
 
-        def set_value(self, record, value):
-            if self.value[1] is str:
-                record[self.value[0]] = value.encode()
-            elif self.value[1] is int:
-                record[self.value[0]] = str(value).encode()
-            elif self.value[1] is object:
-                record[self.value[0]] = base64.urlsafe_b64encode(value)
-            else:
-                record[self.value[0]] = value
+        def get_value(self, record, raw=True):
+            return super(self.__class__, self).get_value(record, raw)
 
 
 def update_collection_with_field(collection, field, default, db, updates_between_commits=100):

@@ -1,18 +1,19 @@
 import random
+import tempfile
+import time
 
 from file_store import database
 from file_store.database import *
+from pipeline.features import *
 
 
 def test_compute_features():
-    #: :type: unqlite.Collection
-    good_song_representation_collection = SongInfoDatabase.db.collection(database.DB_GOOD_SONG_REPRESENTATIONS)
-    #: :type: unqlite.Collection
-    bad_song_representation_collection = SongInfoDatabase.db.collection(database.DB_BAD_SONG_REPRESENTATIONS)
+    gsrc = SongInfoDatabase.db.collection(database.DB_GOOD_SONGS)
+    song_index = random.randint(0, len(gsrc) - 1)
 
-    rand_idx = random.choice(range(len(good_song_representation_collection)))
-    rand_song = good_song_representation_collection.fetch(rand_idx)
+    features = compute_features(789, 1)
 
 
 def test_generate_audio_sample():
-
+    gsrc = SongInfoDatabase.db.collection(database.DB_GOOD_SONGS)
+    generate_audio_sample(random.randint(0, len(gsrc) - 1), delete_on_exit=False)

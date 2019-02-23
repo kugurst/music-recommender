@@ -201,7 +201,7 @@ def _store_lvl_sampled_songs(result_queue, worker_count):
             ))
 
             song_sample = SongSamplesDatabase.SongSamplesODBC.initialize_record(
-                song_hash, song_info_id, left_samples_sets, right_samples_sets
+                song_hash, song_info_id, is_good_song, left_samples_sets, right_samples_sets
             )
             SongSamplesLVLDatabase.SongSamplesIndex.store(song_sample)
             SongInfoDatabase.SongInfoODBC.SONG_SAMPLES_ID.set_value(song_info, songs_written)

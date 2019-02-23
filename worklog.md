@@ -61,4 +61,25 @@
 # Feb 17, 2019 #
 
 - Adding the sample rate of songs to the database
+- Switched over to using leveldb for the song samples database
+    - It appears to build and fetch faster than unqlite
 
+# Feb 18, 2019 #
+
+- Wrote a routine to take a song id and sample number, and generate a wavfile from it
+
+# Feb 19, 2019 #
+
+- Installed delegator for cleaner subprocess control
+
+# Feb 20, 2019 #
+
+- Found that jAudio's command line interface sucks, and is slow. Not usable
+
+- Reviewing marsys filters:
+    - Chroma uses fixed chords
+        - It measures around piano frequencies, which is possibly where I want to be, but it doesn't go as low as 200 Hz
+        - https://musicinformationretrieval.com/chroma.html
+    - The centroid uses the output of the FFT to determine where the spectral mean of the audio is
+        - https://en.wikipedia.org/wiki/Spectral_centroid
+    
