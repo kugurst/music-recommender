@@ -86,7 +86,11 @@ def build_song_samples(lvl=False):
                                                     (bad_song_paths_collection, False)]:
             all_elements = song_paths_collection.all()
             for elem in all_elements:
-                # if SongInfoDatabase.SongInfoODBC.SONG_SAMPLES_ID.get_value(elem) is None:
+                if lvl:
+                    is_not_present = SongInfoDatabase.SongInfoODBC.SONG_SAMPLES_ID.get_value(elem) is None
+                else:
+                    is_not_present = SongInfoDatabase.SongInfoODBC.SONG_SAMPLES_UNQLITE_ID.get_value(elem) is None
+                if is_not_present:
                     input_queue.put((elem[database.DB_RECORD_FIELD], is_good_song,
                                      SongInfoDatabase.SongInfoODBC.SONG_HASH.get_value(elem),
                                      SongInfoDatabase.SongInfoODBC.SONG_PATH.get_value(elem)
@@ -263,7 +267,7 @@ def _store_sampled_songs(result_queue, worker_count):
                 song_hash, song_info_id, left_samples_sets, right_samples_sets
             )
             song_samples_collection.store(song_sample)
-            SongInfoDatabase.SongInfoODBC.SONG_SAMPLES_ID.set_value(song_info, songs_written)
+            SongInfoDatabase.SongInfoODBC.SONG_SAMPLES_UNQLITE_ID.set_value(song_info, songs_written)
             song_info_collection.update(song_info[database.DB_RECORD_FIELD], song_info)
 
             songs_written += 1

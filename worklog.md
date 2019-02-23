@@ -82,4 +82,14 @@
         - https://musicinformationretrieval.com/chroma.html
     - The centroid uses the output of the FFT to determine where the spectral mean of the audio is
         - https://en.wikipedia.org/wiki/Spectral_centroid
-    
+
+# Feb 21, 2019 #
+
+- Started using librosa for MIR, instead of the marsys
+- Started collecting and benchmarking some features to use
+    - They all run significantly faster than their marsys equivalent
+
+# Feb 22, 2019 #
+
+- Fleshed out the selection of features to use
+- Created the skeleton of the NN pipeline

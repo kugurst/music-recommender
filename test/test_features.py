@@ -12,6 +12,7 @@ def test_compute_features():
     song_index = random.randint(0, len(gsrc) - 1)
 
     features = compute_features(789, 1)
+    print(features)
 
 
 def test_generate_audio_sample():

@@ -1,6 +1,7 @@
 import atexit
 import logging
 import os
+import pickle
 import random
 import tempfile
 
@@ -19,6 +20,22 @@ __all__ = ["generate_audio_sample", "compute_features"]
 
 _audio_amplitude_max = 32767
 hop_length = 2048
+
+
+class Feature(object):
+    def __init__(self, flux=None, tempo=None, rolloff=None, fft=None, contrast=None, mel=None, y_harmonic=None,
+                 y_percussive=None, rms=None, chroma=None, tonnetz=None):
+        self.flux = flux
+        self.tempo = tempo
+        self.rolloff = rolloff
+        self.fft = fft
+        self.contrast = contrast
+        self.mel = mel
+        self.y_harmonic = y_harmonic
+        self.y_percussive = y_percussive
+        self.rms = rms
+        self.chroma = chroma
+        self.tonnetz = tonnetz
 
 
 def compute_features(song_index, sample_index=None, song_file_or_path=None):
@@ -40,16 +57,24 @@ def compute_features(song_index, sample_index=None, song_file_or_path=None):
     rolloff = librosa.feature.spectral_rolloff(y=mono_mix, sr=sample_rate, hop_length=hop_length)
 
     # Chroma
-    n_fft = 2**12
+    n_fft = 2 ** 12
     S = librosa.stft(y=mono_mix, n_fft=n_fft, hop_length=hop_length)
     contrast = librosa.feature.spectral_contrast(S=S, sr=sample_rate, n_fft=n_fft, hop_length=hop_length, fmin=31,
                                                  n_bands=9)
 
     mel = librosa.feature.melspectrogram(y=mono_mix, sr=sample_rate, S=S, n_fft=n_fft, hop_length=hop_length)
 
-    # y_harmonic, y_percussive = librosa.effects.hpss(mono_mix)
+    y_harmonic, y_percussive = librosa.decompose.hpss(S=S)
 
-    pass
+    rms = librosa.feature.rms(S=S, hop_length=hop_length, frame_length=hop_length)
+
+    chroma = librosa.feature.chroma_stft(S=S, sr=sample_rate, n_fft=n_fft, hop_length=hop_length)
+
+    tonnetz = librosa.feature.tonnetz(y=mono_mix, sr=sample_rate, chroma=chroma)
+
+    feature = Feature(flux=flux, tempo=tempo, rolloff=rolloff, fft=np.abs(S), contrast=contrast, mel=mel,
+                      y_harmonic=y_harmonic, y_percussive=y_percussive, rms=rms, chroma=chroma, tonnetz=tonnetz)
+    return feature
 
 
 def delete_if_present(file_name):

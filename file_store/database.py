@@ -141,6 +141,7 @@ class SongInfoDatabase(BaseDatabase):
         SONG_HASH = ["hash", str, None]
         SONG_PATH = ["path", str, None]
         SONG_SAMPLES_ID = ["samples_id", int, None]
+        SONG_SAMPLES_UNQLITE_ID = ["unqlite_samples_id", int, None]
         SONG_SAMPLE_RATE = ["sample_rate", int, None]
 
 
