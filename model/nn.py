@@ -1,5 +1,6 @@
 import math
 import multiprocessing
+import threading
 
 import keras
 
@@ -44,3 +45,12 @@ def train_model(model, sequencer, epochs=1):
                         epochs=epochs,
                         callbacks=[checkpointer], verbose=2,
                         max_queue_size=multiprocessing.cpu_count() ** 2)
+
+    # Stop generators
+    for processes in [sequencer.processes_train, sequencer.processes_validate]:
+        #: :type: multiprocessing.Process
+        for process in processes:  # type: multiprocessing.Process
+            process.terminate()
+
+    sequencer.done_queue_train.put(0)
+    sequencer.done_queue_validate.put(0)

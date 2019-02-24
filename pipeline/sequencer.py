@@ -28,6 +28,20 @@ class Sequencer(object):
         self.validation_split = validation_split
         self.batch_size = batch_size
 
+        self.processes_train = None
+        self.thread_train = None
+        self.manager_train = None
+        self.input_queue_train = None
+        self.result_queue_train = None
+        self.done_queue_train = None
+
+        self.processes_validate = None
+        self.thread_validate = None
+        self.manager_validate = None
+        self.input_queue_validate = None
+        self.result_queue_validate = None
+        self.done_queue_validate = None
+
     def initialize_dataset(self):
         good_songs, bad_songs = [], []
         good_collection = SongInfoDatabase.db.collection(database.DB_GOOD_SONGS)
@@ -63,8 +77,11 @@ class Sequencer(object):
 
         # self.train_sequence = DataSet(test_set)
         # self.validate_sequence = DataSet(validate_sequence)
-        self.train_sequence = data_generator(train_set, self.batch_size)
-        self.validate_sequence = data_generator(validate_set, self.batch_size)
+        self.train_sequence, self.processes_train, self.thread_train, self.manager_train, self.input_queue_train, \
+            self.result_queue_train, self.done_queue_train = data_generator(train_set, self.batch_size)
+
+        self.validate_sequence, self.processes_validate, self.thread_validate, self.manager_validate, \
+            self.input_queue_validate, self.result_queue_validate, self.done_queue_validate = data_generator(validate_set, self.batch_size)
 
         self.train_set = train_set
         self.validate_set = validate_set
@@ -74,6 +91,7 @@ def data_generator(data_set, batch_size):
     manager = multiprocessing.Manager()
     input_queue = manager.Queue(batch_size * 2)
     result_queue = manager.Queue(batch_size * 2)
+    done_queue = manager.Queue()
     selected_sample_indexes = dict()
 
     processes = []
@@ -84,7 +102,7 @@ def data_generator(data_set, batch_size):
         p.start()
 
     thread = threading.Thread(target=_compute_next_batch,
-                              args=(batch_size, data_set, input_queue, selected_sample_indexes))
+                              args=(batch_size, data_set, input_queue, done_queue, selected_sample_indexes))
     thread.start()
 
     def generator():
@@ -96,10 +114,12 @@ def data_generator(data_set, batch_size):
 
             for idx in range(min(batch_size, len(data_set) - base_index)):
                 computed_features, song_record_id, song_class, chosen_samples = result_queue.get()
+
+                #: :type: pipeline.features.Feature
                 computed_features = pickle.loads(computed_features)
                 selected_sample_indexes[song_record_id] = chosen_samples
 
-                batch_features[idx] = song_record_id
+                batch_features[idx] = computed_features.tempo
                 batch_labels[idx] = song_class
 
             base_index += batch_size
@@ -108,23 +128,28 @@ def data_generator(data_set, batch_size):
 
             yield batch_features, batch_labels
 
-    return generator
+    return generator, processes, thread, manager, input_queue, result_queue, done_queue
 
 
-def _compute_next_batch(batch_size, data_set, input_queue, selected_sample_indexes):
+def _compute_next_batch(batch_size, data_set, input_queue, done_queue, selected_sample_indexes):
     base_index = 0
 
     while True:
-        samples_in_batch = min(batch_size, len(data_set) - base_index)
-        for idx in range(samples_in_batch):
-            song_record_id, song_class = data_set[idx + base_index]
-            __logger__.debug(song_record_id)
+        try:
+            samples_in_batch = min(batch_size, len(data_set) - base_index)
+            for idx in range(samples_in_batch):
+                song_record_id, song_class = data_set[idx + base_index]
+                __logger__.debug(song_record_id)
 
-            input_queue.put((song_record_id, song_class, selected_sample_indexes.setdefault(song_record_id, set())))
+                input_queue.put((song_record_id, song_class, selected_sample_indexes.setdefault(song_record_id, set())),
+                                timeout=1)
 
-        base_index += batch_size
-        if base_index >= len(data_set):
-            base_index = 0
+            base_index += batch_size
+            if base_index >= len(data_set):
+                base_index = 0
+        except queue.Full:
+            if done_queue.qsize():
+                break
 
 
 class DataSet(Sequence):

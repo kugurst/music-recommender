@@ -20,8 +20,9 @@ __logger__ = logging.getLogger(__name__)
 
 __all__ = ["generate_audio_sample", "compute_features", "Feature"]
 
-_audio_amplitude_max = 32767
-hop_length = 2048
+_AUDIO_AMPLITUDE_MAX = 32767
+_MAX_READS_BEFORE_ABORT = 15
+HOP_LENGTH = 2**15
 
 
 class Feature(object):
@@ -56,31 +57,31 @@ def compute_features(song_index, sample_index=None, song_file_or_path=None, try_
     mono_mix = np.average([[left_samples_set, right_samples_set]], axis=1)[0]
     max_sample = max(abs(mono_mix))
     if max_sample != 0:
-        mono_mix *= _audio_amplitude_max / max_sample
+        mono_mix *= _AUDIO_AMPLITUDE_MAX / max_sample
     mono_mix = mono_mix.astype(np.float32)
 
     sample_rate = SongInfoDatabase.SongInfoODBC.SONG_SAMPLE_RATE.get_value(song_info_record)
 
     # tempo
-    flux = librosa.onset.onset_strength(y=mono_mix, sr=sample_rate, hop_length=hop_length)
-    tempo = librosa.beat.tempo(onset_envelope=flux, sr=sample_rate, hop_length=hop_length)[0]
+    flux = librosa.onset.onset_strength(y=mono_mix, sr=sample_rate, hop_length=HOP_LENGTH)
+    tempo = librosa.beat.tempo(onset_envelope=flux, sr=sample_rate, hop_length=HOP_LENGTH)[0]
 
     # rolloff
-    rolloff = librosa.feature.spectral_rolloff(y=mono_mix, sr=sample_rate, hop_length=hop_length)
+    rolloff = librosa.feature.spectral_rolloff(y=mono_mix, sr=sample_rate, hop_length=HOP_LENGTH)
 
     # Chroma
     n_fft = 2 ** 12
-    S = librosa.stft(y=mono_mix, n_fft=n_fft, hop_length=hop_length)
-    contrast = librosa.feature.spectral_contrast(S=S, sr=sample_rate, n_fft=n_fft, hop_length=hop_length, fmin=31,
+    S = librosa.stft(y=mono_mix, n_fft=n_fft, hop_length=HOP_LENGTH)
+    contrast = librosa.feature.spectral_contrast(S=S, sr=sample_rate, n_fft=n_fft, hop_length=HOP_LENGTH, fmin=31,
                                                  n_bands=9)
 
-    mel = librosa.feature.melspectrogram(y=mono_mix, sr=sample_rate, S=S, n_fft=n_fft, hop_length=hop_length)
+    mel = librosa.feature.melspectrogram(y=mono_mix, sr=sample_rate, S=S, n_fft=n_fft, hop_length=HOP_LENGTH)
 
     y_harmonic, y_percussive = librosa.decompose.hpss(S=S)
 
-    rms = librosa.feature.rms(S=S, hop_length=hop_length, frame_length=hop_length)
+    rms = librosa.feature.rms(S=S, hop_length=HOP_LENGTH, frame_length=HOP_LENGTH)
 
-    chroma = librosa.feature.chroma_stft(S=S, sr=sample_rate, n_fft=n_fft, hop_length=hop_length)
+    chroma = librosa.feature.chroma_stft(S=S, sr=sample_rate, n_fft=n_fft, hop_length=HOP_LENGTH)
 
     tonnetz = librosa.feature.tonnetz(y=mono_mix, sr=sample_rate, chroma=chroma)
 
@@ -100,12 +101,16 @@ def get_samples_zodb(song_index, sample_index=None, try_exclude_samples=None):
         get_samples.gsic
         get_samples.bsic
         get_samples.songs
+
+        get_samples.abort_count
     except AttributeError:
         #: :type: unqlite.Collection
         get_samples.gsic = SongInfoDatabase.db.collection(database.DB_GOOD_SONGS)
         #: :type: unqlite.Collection
         get_samples.bsic = SongInfoDatabase.db.collection(database.DB_BAD_SONGS)
         get_samples.songs, _ = SongSampleZODBDatabase.get_songs(True)
+
+        get_samples.abort_count = 0
 
     #: :type: file_store.database.SongSamplesZODBPersist
     song_sample_record = get_samples.songs[song_index]
@@ -115,7 +120,11 @@ def get_samples_zodb(song_index, sample_index=None, try_exclude_samples=None):
 
     left_samples_sets, right_samples_sets = \
         song_sample_record.get_samples_left(), song_sample_record.get_samples_right()
-    transaction.abort()
+
+    if get_samples.abort_count % _MAX_READS_BEFORE_ABORT == 0:
+        transaction.abort()
+
+    get_samples.abort_count += 1
 
     if sample_index is None:
         if try_exclude_samples:
