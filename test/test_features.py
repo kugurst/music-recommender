@@ -7,6 +7,11 @@ from file_store.database import *
 from pipeline.features import *
 
 
+def test_blah():
+    songs, _ = SongSampleZODBDatabase.get_songs(True)
+    print(len(songs))
+
+
 def test_compute_features():
     gsrc = SongInfoDatabase.db.collection(database.DB_GOOD_SONGS)
     song_index = random.randint(0, len(gsrc) - 1)

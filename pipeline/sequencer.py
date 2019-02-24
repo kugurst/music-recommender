@@ -2,6 +2,7 @@ import logging
 import multiprocessing
 import pickle
 import queue
+import threading
 from collections import Generator
 
 import numpy as np
@@ -29,13 +30,17 @@ class Sequencer(object):
 
     def initialize_dataset(self):
         good_songs, bad_songs = [], []
-        for collection, song_bin, is_good_song in [
-            (SongInfoDatabase.db.collection(database.DB_GOOD_SONGS), good_songs, True),
-            (SongInfoDatabase.db.collection(database.DB_BAD_SONGS), bad_songs, False)
-        ]:
+        good_collection = SongInfoDatabase.db.collection(database.DB_GOOD_SONGS)
+        bad_collection = SongInfoDatabase.db.collection(database.DB_BAD_SONGS)
+        total_len = len(good_collection) + len(bad_collection)
+        for collection, song_bin, is_good_song in [(good_collection, good_songs, True),
+                                                   (bad_collection, bad_songs, False)]:
             for idx in range(len(collection)):
                 record = collection.fetch(idx)
                 song_sample_id = SongInfoDatabase.SongInfoODBC.SONG_SAMPLES_UNQLITE_ID.get_value(record)
+                if song_sample_id >= total_len - 1:
+                    continue
+
                 if is_good_song:
                     good_songs.append((song_sample_id, 1))
                 else:
@@ -67,8 +72,8 @@ class Sequencer(object):
 
 def data_generator(data_set, batch_size):
     manager = multiprocessing.Manager()
-    input_queue = manager.Queue()
-    result_queue = manager.Queue()
+    input_queue = manager.Queue(batch_size * 2)
+    result_queue = manager.Queue(batch_size * 2)
     selected_sample_indexes = dict()
 
     processes = []
@@ -78,18 +83,16 @@ def data_generator(data_set, batch_size):
         processes.append(p)
         p.start()
 
+    thread = threading.Thread(target=_compute_next_batch,
+                              args=(batch_size, data_set, input_queue, selected_sample_indexes))
+    thread.start()
+
     def generator():
         base_index = 0
         generator.__len__ = len(data_set)
         while True:
             batch_features = np.zeros((batch_size, 1), dtype=np.float32)
             batch_labels = np.zeros((batch_size, 1), dtype=np.float32)
-
-            for idx in range(min(batch_size, len(data_set) - base_index)):
-                song_record_id, song_class = data_set[idx + base_index]
-                __logger__.debug(song_record_id)
-
-                input_queue.put((song_record_id, song_class, selected_sample_indexes.setdefault(song_record_id, set())))
 
             for idx in range(min(batch_size, len(data_set) - base_index)):
                 computed_features, song_record_id, song_class, chosen_samples = result_queue.get()
@@ -106,6 +109,22 @@ def data_generator(data_set, batch_size):
             yield batch_features, batch_labels
 
     return generator
+
+
+def _compute_next_batch(batch_size, data_set, input_queue, selected_sample_indexes):
+    base_index = 0
+
+    while True:
+        samples_in_batch = min(batch_size, len(data_set) - base_index)
+        for idx in range(samples_in_batch):
+            song_record_id, song_class = data_set[idx + base_index]
+            __logger__.debug(song_record_id)
+
+            input_queue.put((song_record_id, song_class, selected_sample_indexes.setdefault(song_record_id, set())))
+
+        base_index += batch_size
+        if base_index >= len(data_set):
+            base_index = 0
 
 
 class DataSet(Sequence):
