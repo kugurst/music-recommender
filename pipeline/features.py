@@ -8,23 +8,26 @@ import tempfile
 import librosa
 import numpy as np
 import scipy
+import transaction
 from scipy import io
 from scipy.io import wavfile
 
 from file_store import database
 from file_store.database import *
+from pre_process.audio_representation import DatabaseBackend
 
 __logger__ = logging.getLogger(__name__)
 
-__all__ = ["generate_audio_sample", "compute_features"]
+__all__ = ["generate_audio_sample", "compute_features", "Feature"]
 
 _audio_amplitude_max = 32767
 hop_length = 2048
 
 
 class Feature(object):
-    def __init__(self, flux=None, tempo=None, rolloff=None, fft=None, contrast=None, mel=None, y_harmonic=None,
-                 y_percussive=None, rms=None, chroma=None, tonnetz=None):
+    def __init__(self, sample_index, flux=None, tempo=None, rolloff=None, fft=None, contrast=None, mel=None,
+                 y_harmonic=None, y_percussive=None, rms=None, chroma=None, tonnetz=None):
+        self.sample_index = sample_index
         self.flux = flux
         self.tempo = tempo
         self.rolloff = rolloff
@@ -38,13 +41,22 @@ class Feature(object):
         self.tonnetz = tonnetz
 
 
-def compute_features(song_index, sample_index=None, song_file_or_path=None):
-    left_samples_set, right_samples_set, song_info_record = get_samples(song_index, sample_index)
+def compute_features(song_index, sample_index=None, song_file_or_path=None, try_exclude_samples=None,
+                     backend=DatabaseBackend.ZODB):
+    if backend == DatabaseBackend.ZODB:
+        samples_func = get_samples_zodb
+    else:
+        samples_func = get_samples
+
+    left_samples_set, right_samples_set, song_info_record, sample_index = samples_func(
+        song_index, sample_index, try_exclude_samples=try_exclude_samples)
     # generate_audio_sample(song_index, sample_index, song_file_or_path, delete_on_exit=False)
 
     # Normalize the audio
     mono_mix = np.average([[left_samples_set, right_samples_set]], axis=1)[0]
-    mono_mix *= _audio_amplitude_max / max(abs(mono_mix))
+    max_sample = max(abs(mono_mix))
+    if max_sample != 0:
+        mono_mix *= _audio_amplitude_max / max_sample
     mono_mix = mono_mix.astype(np.float32)
 
     sample_rate = SongInfoDatabase.SongInfoODBC.SONG_SAMPLE_RATE.get_value(song_info_record)
@@ -73,7 +85,8 @@ def compute_features(song_index, sample_index=None, song_file_or_path=None):
     tonnetz = librosa.feature.tonnetz(y=mono_mix, sr=sample_rate, chroma=chroma)
 
     feature = Feature(flux=flux, tempo=tempo, rolloff=rolloff, fft=np.abs(S), contrast=contrast, mel=mel,
-                      y_harmonic=y_harmonic, y_percussive=y_percussive, rms=rms, chroma=chroma, tonnetz=tonnetz)
+                      y_harmonic=y_harmonic, y_percussive=y_percussive, rms=rms, chroma=chroma, tonnetz=tonnetz,
+                      sample_index=sample_index)
     return feature
 
 
@@ -82,35 +95,93 @@ def delete_if_present(file_name):
         os.remove(file_name)
 
 
-def get_samples(song_index, sample_index=None):
+def get_samples_zodb(song_index, sample_index=None, try_exclude_samples=None):
     try:
         get_samples.gsic
         get_samples.bsic
+        get_samples.songs
     except AttributeError:
         #: :type: unqlite.Collection
         get_samples.gsic = SongInfoDatabase.db.collection(database.DB_GOOD_SONGS)
         #: :type: unqlite.Collection
         get_samples.bsic = SongInfoDatabase.db.collection(database.DB_BAD_SONGS)
+        get_samples.songs, _ = SongSampleZODBDatabase.get_songs(True)
 
-    song_sample_record = SongSamplesLVLDatabase.SongSamplesIndex.fetch(song_index)
-    is_good_song = SongSamplesLVLDatabase.SongSamplesODBC.SONG_IS_GOOD.get_value(song_sample_record)
-    song_info_collection = get_samples.gsic if is_good_song else get_samples.bsic
-    song_info_record = song_info_collection.fetch(SongSamplesLVLDatabase.SongSamplesODBC.SONG_INFO_ID.get_value(
-        song_sample_record))
+    #: :type: file_store.database.SongSamplesZODBPersist
+    song_sample_record = get_samples.songs[song_index]
+
+    song_info_collection = get_samples.gsic if song_sample_record.is_good_song else get_samples.bsic
+    song_info_record = song_info_collection.fetch(song_sample_record.info_id)
+
+    left_samples_sets, right_samples_sets = \
+        song_sample_record.get_samples_left(), song_sample_record.get_samples_right()
+    transaction.abort()
 
     if sample_index is None:
-        sample_index = random.randint(0, len(SongSamplesLVLDatabase.SongSamplesODBC.SONG_SAMPLES_LEFT.get_value(
-            song_sample_record, True)) - 1)
+        if try_exclude_samples:
+            unselected = set(range(len(left_samples_sets))) - try_exclude_samples
+            if unselected:
+                sample_index = np.random.choice(list(unselected))
+        # Still none? Either we've used all samples, or we haven't tried any
+        if sample_index is None:
+            sample_index = random.randint(0, len(left_samples_sets) - 1)
 
-    left_samples_set, right_samples_set = \
-        SongSamplesLVLDatabase.SongSamplesODBC.SONG_SAMPLES_LEFT.get_value(song_sample_record)[sample_index], \
-        SongSamplesLVLDatabase.SongSamplesODBC.SONG_SAMPLES_RIGHT.get_value(song_sample_record)[sample_index]
+    left_samples_set, right_samples_set = left_samples_sets[sample_index], right_samples_sets[sample_index]
 
-    return left_samples_set, right_samples_set, song_info_record
+    return left_samples_set, right_samples_set, song_info_record, sample_index
+
+
+def get_samples(song_index, sample_index=None, try_exclude_samples=None):
+    try:
+        get_samples.gsic
+        get_samples.gssc
+        get_samples.bsic
+        get_samples.bssc
+        get_samples.total_samples
+    except AttributeError:
+        #: :type: unqlite.Collection
+        get_samples.gsic = SongInfoDatabase.db.collection(database.DB_GOOD_SONGS)
+        #: :type: unqlite.Collection
+        get_samples.bsic = SongInfoDatabase.db.collection(database.DB_BAD_SONGS)
+        #: :type: unqlite.Collection
+        get_samples.gssc = SongSamplesDatabase.db.collection(database.DB_GOOD_SONGS)
+        #: :type: unqlite.Collection
+        get_samples.bssc = SongSamplesDatabase.db.collection(database.DB_BAD_SONGS)
+        get_samples.total_samples = len(get_samples.gsic) + len(get_samples.bsic)
+
+    is_good_song = song_index < len(get_samples.gsic)
+
+    song_info_collection = get_samples.gsic if is_good_song else get_samples.bsic
+    if not is_good_song:
+        song_index -= len(get_samples.gsic)
+    song_sample_collection = get_samples.gssc if is_good_song else get_samples.bssc
+
+    song_info_record = song_info_collection.fetch(song_index)
+    song_record_id = SongInfoDatabase.SongInfoODBC.SONG_SAMPLES_UNQLITE_ID.get_value(song_info_record)
+    if not is_good_song:
+        song_record_id -= len(get_samples.gsic)
+    song_sample_record = song_sample_collection.fetch(song_record_id)
+
+    left_samples_sets, right_samples_sets = \
+        SongSamplesDatabase.SongSamplesODBC.SONG_SAMPLES_LEFT.get_value(song_sample_record), \
+        SongSamplesDatabase.SongSamplesODBC.SONG_SAMPLES_RIGHT.get_value(song_sample_record)
+
+    if sample_index is None:
+        if try_exclude_samples:
+            unselected = set(range(len(left_samples_sets))) - try_exclude_samples
+            if unselected:
+                sample_index = np.random.choice(list(unselected))
+        # Still none? Either we've used all samples, or we haven't tried any
+        if sample_index is None:
+            sample_index = random.randint(0, len(left_samples_sets) - 1)
+
+    left_samples_set, right_samples_set = left_samples_sets[sample_index], right_samples_sets[sample_index]
+
+    return left_samples_set, right_samples_set, song_info_record, sample_index
 
 
 def generate_audio_sample(song_index, sample_index=None, file_or_path=None, delete_on_exit=True):
-    left_samples_set, right_samples_set, song_info_record = get_samples(song_index, sample_index)
+    left_samples_set, right_samples_set, song_info_record, sample_index = get_samples(song_index, sample_index)
 
     file_name = file_or_path
     if not file_or_path:

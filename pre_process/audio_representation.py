@@ -1,8 +1,11 @@
+import enum
 import logging
 import multiprocessing
 import os
 import queue
 import time
+
+import transaction
 
 import numpy as np
 import scipy
@@ -19,11 +22,18 @@ __logger__ = logging.getLogger(__name__)
 _store_batch_size = 10
 _max_result_queue_len = 300
 
-__all__ = ["build_song_indexes", "build_song_samples", "NUMBER_OF_RANDOM_SAMPLES", "SECONDS_PER_RANDOM_SAMPLES"]
+__all__ = ["build_song_indexes", "build_song_samples", "NUMBER_OF_RANDOM_SAMPLES", "SECONDS_PER_RANDOM_SAMPLES",
+           "DatabaseBackend"]
 
 NUMBER_OF_RANDOM_SAMPLES = 30
 SECONDS_PER_RANDOM_SAMPLES = 5
 FRAME_RATE = 44100
+
+
+class DatabaseBackend(enum.IntEnum):
+    UNQLITE = 0
+    LVL = 1
+    ZODB = 2
 
 
 def build_song_indexes():
@@ -62,7 +72,7 @@ def build_song_indexes():
 
 
 # <editor-fold desc="build samples from the songs">
-def build_song_samples(lvl=False):
+def build_song_samples(backend=DatabaseBackend.UNQLITE):
     #: :type: unqlite.Collection
     good_song_paths_collection = SongInfoDatabase.db.collection(database.DB_GOOD_SONGS)
     #: :type: unqlite.Collection
@@ -86,10 +96,13 @@ def build_song_samples(lvl=False):
                                                     (bad_song_paths_collection, False)]:
             all_elements = song_paths_collection.all()
             for elem in all_elements:
-                if lvl:
+                if backend == DatabaseBackend.UNQLITE:
                     is_not_present = SongInfoDatabase.SongInfoODBC.SONG_SAMPLES_ID.get_value(elem) is None
-                else:
+                elif backend == DatabaseBackend.LVL:
                     is_not_present = SongInfoDatabase.SongInfoODBC.SONG_SAMPLES_UNQLITE_ID.get_value(elem) is None
+                else:
+                    is_not_present = SongInfoDatabase.SongInfoODBC.SONG_SAMPLES_ZODB_ID.get_value(elem) is None
+                # is_not_present = True
                 if is_not_present:
                     input_queue.put((elem[database.DB_RECORD_FIELD], is_good_song,
                                      SongInfoDatabase.SongInfoODBC.SONG_HASH.get_value(elem),
@@ -109,10 +122,12 @@ def build_song_samples(lvl=False):
             p.start()
 
         # Store results
-        if lvl:
+        if backend == DatabaseBackend.LVL:
             _store_lvl_sampled_songs(result_queue, multiprocessing.cpu_count())
-        else:
+        elif backend == DatabaseBackend.UNQLITE:
             _store_sampled_songs(result_queue, multiprocessing.cpu_count())
+        else:
+            _store_zodb_sampled_songs(result_queue, multiprocessing.cpu_count())
 
         # Wait for everything to terminate
         for p in samplers:
@@ -137,7 +152,7 @@ def _sample_songs(input_queue, result_queue):
             left_samples = np.array(samples[0::2])
             right_samples = np.array(samples[1::2])
 
-            left_samples_sets, right_samples_sets = _select_random_samples_sets(
+            left_samples_sets, right_samples_sets, starting_sample_indexes = _select_random_samples_sets(
                 NUMBER_OF_RANDOM_SAMPLES, SECONDS_PER_RANDOM_SAMPLES, left_samples, right_samples, frame_rate
             )
 
@@ -146,6 +161,7 @@ def _sample_songs(input_queue, result_queue):
                               is_good_song,
                               SongSamplesDatabase.SongSamplesODBC.serialize_object(left_samples_sets),
                               SongSamplesDatabase.SongSamplesODBC.serialize_object(right_samples_sets),
+                              starting_sample_indexes
                               ))
 
     result_queue.put(1)
@@ -155,8 +171,8 @@ def _select_random_samples_sets(num_selection, seconds_per_selection, left_sampl
     assert len(left_samples) == len(right_samples)
 
     samples_per_selection = seconds_per_selection * frame_rate
-    starting_sample_indexes = set(np.random.randint(0, max(0, len(left_samples) - samples_per_selection) + 1,
-                                                    size=num_selection))
+    starting_sample_indexes = list(set(np.random.randint(0, max(0, len(left_samples) - samples_per_selection) + 1,
+                                                         size=num_selection)))
 
     left_samples_sets, right_samples_sets = [], []
 
@@ -164,7 +180,60 @@ def _select_random_samples_sets(num_selection, seconds_per_selection, left_sampl
         ending_index = min(len(left_samples), starting_sample_index + samples_per_selection)
         left_samples_sets.append(left_samples[starting_sample_index:ending_index])
         right_samples_sets.append(right_samples[starting_sample_index:ending_index])
-    return left_samples_sets, right_samples_sets
+    return left_samples_sets, right_samples_sets, starting_sample_indexes
+
+
+def _store_zodb_sampled_songs(result_queue, worker_count):
+    #: :type: unqlite.Collection
+    good_song_info_collection = SongInfoDatabase.db.collection(database.DB_GOOD_SONGS)
+    #: :type: unqlite.Collection
+    bad_song_info_collection = SongInfoDatabase.db.collection(database.DB_BAD_SONGS)
+
+    done_workers = 0
+    songs_written = 0
+
+    songs, connection = SongSampleZODBDatabase.get_songs()
+    SongInfoDatabase.db.begin()
+    while True:
+        try:
+            __logger__.debug("Storer: retrieveing next song")
+            song_info_id, song_hash, is_good_song, left_samples_sets, right_samples_sets, starting_sample_indexes = \
+                result_queue.get()
+            __logger__.debug("Storer: got song [{}]".format(song_info_id))
+            if songs_written % _store_batch_size == _store_batch_size - 1:
+                __logger__.debug("Storer: committing previous [{}] songs".format(_store_batch_size))
+                transaction.commit()
+                SongInfoDatabase.db.commit()
+                SongInfoDatabase.db.begin()
+        except TypeError:
+            done_workers += 1
+            if done_workers == worker_count:
+                break
+        except queue.Empty:
+            continue
+        else:
+            song_info_collection = good_song_info_collection if is_good_song else bad_song_info_collection
+
+            song_info = song_info_collection.fetch(song_info_id)
+
+            __logger__.debug("Storer: Song [{}] is named [{}]".format(
+                song_info_id, os.path.basename(SongInfoDatabase.SongInfoODBC.SONG_PATH.get_value(song_info))
+            ))
+
+            songs[songs_written] = SongSamplesZODBPersist(song_hash=song_hash, info_id=song_info_id,
+                                                          is_good_song=is_good_song, samples_left=left_samples_sets,
+                                                          samples_right=right_samples_sets,
+                                                          samples_indexes=starting_sample_indexes)
+            SongInfoDatabase.SongInfoODBC.SONG_SAMPLES_ZODB_ID.set_value(song_info, songs_written)
+            song_info_collection.update(song_info[database.DB_RECORD_FIELD], song_info)
+
+            songs_written += 1
+
+            __logger__.debug("Storer: songs waiting to be written: [{}]".format(result_queue.qsize()))
+
+    transaction.commit()
+    connection.close()
+    SongInfoDatabase.db.commit()
 
 
 def _store_lvl_sampled_songs(result_queue, worker_count):
@@ -181,7 +250,8 @@ def _store_lvl_sampled_songs(result_queue, worker_count):
     while True:
         try:
             __logger__.debug("Storer: retrieveing next song")
-            song_info_id, song_hash, is_good_song, left_samples_sets, right_samples_sets = result_queue.get()
+            song_info_id, song_hash, is_good_song, left_samples_sets, right_samples_sets, starting_sample_indexes = \
+                result_queue.get()
             __logger__.debug("Storer: got song [{}]".format(song_info_id))
             if songs_written % _store_batch_size == _store_batch_size - 1:
                 __logger__.debug("Storer: committing previous [{}] songs".format(_store_batch_size))
@@ -238,7 +308,8 @@ def _store_sampled_songs(result_queue, worker_count):
     while True:
         try:
             __logger__.debug("Storer: retrieveing next song")
-            song_info_id, song_hash, is_good_song, left_samples_sets, right_samples_sets = result_queue.get()
+            song_info_id, song_hash, is_good_song, left_samples_sets, right_samples_sets, starting_sample_indexes = \
+                result_queue.get()
             __logger__.debug("Storer: got song [{}]".format(song_info_id))
             if songs_written % _store_batch_size == _store_batch_size - 1:
                 __logger__.debug("Storer: committing previous [{}] songs".format(_store_batch_size))
@@ -264,7 +335,7 @@ def _store_sampled_songs(result_queue, worker_count):
             ))
 
             song_sample = SongSamplesDatabase.SongSamplesODBC.initialize_record(
-                song_hash, song_info_id, left_samples_sets, right_samples_sets
+                song_hash, song_info_id, is_good_song, left_samples_sets, right_samples_sets
             )
             song_samples_collection.store(song_sample)
             SongInfoDatabase.SongInfoODBC.SONG_SAMPLES_UNQLITE_ID.set_value(song_info, songs_written)

@@ -1,10 +1,9 @@
 import logging
 
+logging.basicConfig(level=logging.INFO, format='[%(asctime)s]%(processName)s:%(name)s:%(levelname)s - %(message)s')
+
 from model import nn
 from pipeline.sequencer import *
-
-
-logging.basicConfig(level=logging.DEBUG, format='[%(asctime)s]%(processName)s:%(name)s:%(levelname)s - %(message)s')
 
 
 def main():

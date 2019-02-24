@@ -4,11 +4,15 @@ import base64
 import enum
 import os
 import pickle
+
+from BTrees import IOBTree
 import six
 import traceback
 
 import leveldb
-
+import persistent
+import ZODB
+from ZODB import FileStorage
 from util.class_property import ClassProperty
 
 from unqlite import UnQLite
@@ -16,13 +20,90 @@ from unqlite import UnQLite
 
 _SONG_INFO_DATABASE_FN_ENV = "SONG_INFO_DATABASE_PATH"
 _SONG_SAMPLES_DATABASE_FN_ENV = "SONG_SAMPLES_DATABASE_PATH"
+_SONG_SAMPLES_ZODB_DATABASE_FN_ENV = "SONG_SAMPLES_ZODB_DATABASE_PATH"
+_UNQLITE_READ_ONLY_ENV = "UNQLITE_READ_ONLY"
 
 DB_GOOD_SONGS = "good_song_indexes"
 DB_BAD_SONGS = "bad_song_indexes"
 DB_RECORD_FIELD = "__id"
 
 __all__ = ["SongInfoDatabase", "DB_GOOD_SONGS", "DB_BAD_SONGS", "DB_RECORD_FIELD", "update_collection_with_field",
-           "remove_field_from_collection", "SongSamplesDatabase", "SongSamplesLVLDatabase", "SongSampleRecord"]
+           "remove_field_from_collection", "SongSamplesDatabase", "SongSamplesLVLDatabase", "SongSampleRecord",
+           "SongSampleZODBDatabase", "SongSamplesZODBPersist"]
+
+
+class SongSamplesZODBPersist(persistent.Persistent):
+    def __init__(self, song_hash=None, info_id=None, is_good_song=None, samples_left=None, samples_right=None,
+                 samples_indexes=None):
+        self.song_hash = song_hash
+        self.info_id = info_id
+        self.is_good_song = is_good_song
+        self.samples_left = samples_left
+        self.samples_right = samples_right
+        self.samples_indexes = samples_indexes
+
+    def get_samples_left(self):
+        if isinstance(self.samples_left, bytes):
+            self.samples_left = pickle.loads(self.samples_left)
+        return self.samples_left
+        # try:
+        #     return self.unpickled_left_samples
+        # except AttributeError:
+        #     self.unpickled_left_samples = pickle.loads(self.samples_left)
+        #     return self.unpickled_left_samples
+
+    def get_samples_right(self):
+        if isinstance(self.samples_right, bytes):
+            self.samples_right = pickle.loads(self.samples_right)
+        return self.samples_right
+        # try:
+        #     return self.unpickled_right_samples
+        # except AttributeError:
+        #     self.unpickled_right_samples = pickle.loads(self.samples_right)
+        #     return self.unpickled_right_samples
+
+
+class SongSampleZODBDatabase(object):
+    __db = None
+
+    @classmethod
+    def database_fn_env(cls):
+        return _SONG_SAMPLES_ZODB_DATABASE_FN_ENV
+
+    @ClassProperty
+    @classmethod
+    def database_file(cls):
+        try:
+            db_fn = os.environ[cls.database_fn_env()]
+            try:
+                if not os.path.exists(db_fn):
+                    with open(db_fn, 'ab+'):
+                        pass
+            except IOError:
+                raise RuntimeError("Unable to create database file! Error:\n{}".format(traceback.print_exc()))
+            return db_fn
+        except KeyError:
+            raise EnvironmentError("[{}] is not specified. Specify the intended path to the database file (will be "
+                                   "created if it does not exist)".format(cls.database_fn_env()))
+
+    @classmethod
+    def get_db(cls, read_only=False):
+        if cls.__db is None:
+            # cls.__db = FileStorage.FileStorage(cls.database_file)
+            if read_only:
+                cls.__db = ZODB.DB(cls.database_file, read_only=True)
+            else:
+                cls.__db = ZODB.DB(cls.database_file)
+        return cls.__db
+
+    @classmethod
+    def get_songs(cls, read_only=False):
+        connection = cls.get_db(read_only).open()
+        root = connection.root
+        if getattr(root, "songs", None) is None:
+            root.songs = IOBTree.BTree()
+
+        return root.songs, connection
 
 
 class SongSampleRecord(object):
@@ -105,7 +186,10 @@ class BaseDatabase(object):
         if cls._database is not None:
             return cls._database
         else:
-            cls._database = UnQLite(cls.database_file)
+            if not bool(os.environ.get(_UNQLITE_READ_ONLY_ENV, False)):
+                cls._database = UnQLite(cls.database_file)
+            else:
+                cls._database = UnQLite(cls.database_file, flags=0x00000001)
             atexit.register(cls._database.close)
             return cls._database
 
@@ -142,6 +226,7 @@ class SongInfoDatabase(BaseDatabase):
         SONG_PATH = ["path", str, None]
         SONG_SAMPLES_ID = ["samples_id", int, None]
         SONG_SAMPLES_UNQLITE_ID = ["unqlite_samples_id", int, None]
+        SONG_SAMPLES_ZODB_ID = ["zodb_samples_id", int, None]
         SONG_SAMPLE_RATE = ["sample_rate", int, None]
 
 

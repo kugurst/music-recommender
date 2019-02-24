@@ -93,3 +93,19 @@
 
 - Fleshed out the selection of features to use
 - Created the skeleton of the NN pipeline
+
+# Feb 23, 2019 #
+
+- Training an NN on 5-second examples is fine; it'll give it intuition as to what sounds good or bad
+    - A song is more than 5 seconds though, so we want a way to play all samples of the song, and then train another 
+    neural net on the output of is the song good or not
+    - This neural net takes as input all random samples of a given song, and produces a yes/no output.
+    - But maybe a neural net doesn't make any sense. The inputs are in some random order; there's no inherent order 
+    to where samples occur in a song. Thus the NN inputs will be some random order of the sample.
+    - For this reason, maybe the final classifier is some other model, like an SVM
+
+- The keras Sequence class seems to cache everything generated, and as such consumes too much memory
+    - After much effort, got the generator to work. It may also cache, but train_on_batch is a final recourse
+
+- Discovered that unqlite seems to leak memory. Using ZODB
+    - ZODB appears both fast and not to leak
