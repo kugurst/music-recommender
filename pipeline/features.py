@@ -1,5 +1,6 @@
 import atexit
 import logging
+import math
 import os
 import pickle
 import random
@@ -8,38 +9,138 @@ import tempfile
 import librosa
 import numpy as np
 import scipy
+import sklearn
 import transaction
 from scipy import io
 from scipy.io import wavfile
 
 from file_store import database
 from file_store.database import *
-from pre_process.audio_representation import DatabaseBackend
+from pre_process.audio_representation import *
 
 __logger__ = logging.getLogger(__name__)
 
-__all__ = ["generate_audio_sample", "compute_features", "Feature"]
+__all__ = ["generate_audio_sample", "compute_features", "Feature", "TEMPO_SHAPE", "FLUX_SHAPE", "ROLLOFF_SHAPE",
+           "MEL_SHAPE", "CONTRAST_SHAPE", "TONNETZ_SHAPE", "CHROMA_SHAPE", "HPSS_SHAPE", "RMS_SHAPE"]
 
 _AUDIO_AMPLITUDE_MAX = 32767
-_MAX_READS_BEFORE_ABORT = 15
+_MAX_READS_BEFORE_ABORT = 25
 HOP_LENGTH = 2**15
+N_FFT = 2**12
+N_MELS = 128
+
+
+SAMPLE_RATE = 44100
+TEMPO_SHAPE = (1,)
+FLUX_SHAPE = (int(math.ceil(SECONDS_PER_RANDOM_SAMPLES * SAMPLE_RATE / HOP_LENGTH)),)
+ROLLOFF_SHAPE = (int(math.ceil(SECONDS_PER_RANDOM_SAMPLES * SAMPLE_RATE / HOP_LENGTH)),)
+MEL_SHAPE = (N_MELS, int(math.ceil(SECONDS_PER_RANDOM_SAMPLES * SAMPLE_RATE / HOP_LENGTH)),)
+CONTRAST_SHAPE = (10, int(math.ceil(SECONDS_PER_RANDOM_SAMPLES * SAMPLE_RATE / HOP_LENGTH)),)
+TONNETZ_SHAPE = (6, int(math.ceil(SECONDS_PER_RANDOM_SAMPLES * SAMPLE_RATE / HOP_LENGTH)),)
+CHROMA_SHAPE = (12, int(math.ceil(SECONDS_PER_RANDOM_SAMPLES * SAMPLE_RATE / HOP_LENGTH)),)
+HPSS_SHAPE = ((N_FFT >> 1) + 1, int(math.ceil(SECONDS_PER_RANDOM_SAMPLES * SAMPLE_RATE / HOP_LENGTH)), 2,)
+RMS_SHAPE = (int(math.ceil(SECONDS_PER_RANDOM_SAMPLES * SAMPLE_RATE / HOP_LENGTH)),)
+TEMPO_MAX = 160
 
 
 class Feature(object):
-    def __init__(self, sample_index, flux=None, tempo=None, rolloff=None, fft=None, contrast=None, mel=None,
-                 y_harmonic=None, y_percussive=None, rms=None, chroma=None, tonnetz=None):
+    def __init__(self, sample_index, flux=None, tempo=None, rolloff=None, fft=None, fft_complex=None, fft_bins=None,
+                 contrast=None, mel=None, mel_bins=None, y_harmonic=None, y_percussive=None, rms=None, chroma=None,
+                 tonnetz=None):
         self.sample_index = sample_index
         self.flux = flux
         self.tempo = tempo
         self.rolloff = rolloff
         self.fft = fft
+        self.fft_complex = fft_complex
+        self.fft_bins = fft_bins
         self.contrast = contrast
         self.mel = mel
+        self.mel_bins = mel_bins
         self.y_harmonic = y_harmonic
         self.y_percussive = y_percussive
         self.rms = rms
         self.chroma = chroma
         self.tonnetz = tonnetz
+
+    def normalize_tempo(self):
+        return self.tempo / TEMPO_MAX
+
+    def normalize_flux(self):
+        max_flux = np.max(np.abs(self.flux))
+        if max_flux == 0:
+            return self.flux
+        return self.flux / max_flux
+
+    def normalize_rolloff(self):
+        return sklearn.preprocessing.normalize(self.rolloff, axis=1)[0]
+
+    def normalize_mel(self):
+        max_mel = np.max(np.abs(self.mel))
+        if max_mel == 0:
+            return self.mel
+        return self.mel / max_mel
+
+    def normalize_contrast(self):
+        max_contrast = np.max(np.abs(self.contrast))
+        if max_contrast == 0:
+            return self.contrast
+        return self.contrast / max_contrast
+
+    def normalize_tonnetz(self):
+        magnitude = np.abs(self.tonnetz)
+        max_tonnetz = np.max(magnitude)
+        if max_tonnetz == 0:
+            return magnitude
+        return magnitude / np.max(magnitude)
+
+    def normalize_chroma(self):
+        magnitude = np.abs(self.chroma)
+        max_chroma = np.max(magnitude)
+        if max_chroma == 0:
+            return magnitude
+        return magnitude / np.max(self.chroma)
+
+    def normalize_hpss(self):
+        magnitude_h = np.abs(self.y_harmonic)
+        magnitude_p = np.abs(self.y_percussive)
+
+        max_h = np.max(magnitude_h)
+        max_p = np.max(magnitude_p)
+
+        if max_h == 0:
+            res_h = magnitude_h
+        else:
+            res_h = magnitude_h / max_h
+
+        if max_p == 0:
+            res_p = magnitude_p
+        else:
+            res_p = magnitude_p / max_p
+
+        return np.dstack((res_h, res_p))
+
+    def normalize_rms(self):
+        # return (self.rms / np.max(np.abs(self.rms)))[0]
+        return sklearn.preprocessing.normalize(self.rms, axis=1)[0]
+
+    def compute_fractional_rms_energy(self, lower_frequency=100, upper_frequency=300):
+        below_freq = self.fft_bins <= lower_frequency
+        above_freq = self.fft_bins >= upper_frequency
+
+        below_freq = np.tile(below_freq, [self.fft_complex.shape[1], 1]).T
+        above_freq = np.tile(above_freq, [self.fft_complex.shape[1], 1]).T
+
+        fft_masked = np.ma.masked_array(self.fft_complex, mask=below_freq, fill_value=0).filled()
+        fft_masked = np.ma.masked_array(fft_masked, mask=above_freq, fill_value=0).filled()
+        rms_masked = librosa.feature.rms(S=fft_masked, hop_length=HOP_LENGTH, frame_length=HOP_LENGTH)
+
+        if np.max(self.rms) == 0:
+            return self.rms[0]
+        res = (rms_masked / self.rms)[0]
+        # if np.isnan(res).any() or np.isfinite(res).any():
+        #     pass
+        return res
 
 
 def compute_features(song_index, sample_index=None, song_file_or_path=None, try_exclude_samples=None,
@@ -70,24 +171,27 @@ def compute_features(song_index, sample_index=None, song_file_or_path=None, try_
     rolloff = librosa.feature.spectral_rolloff(y=mono_mix, sr=sample_rate, hop_length=HOP_LENGTH)
 
     # Chroma
-    n_fft = 2 ** 12
-    S = librosa.stft(y=mono_mix, n_fft=n_fft, hop_length=HOP_LENGTH)
-    contrast = librosa.feature.spectral_contrast(S=S, sr=sample_rate, n_fft=n_fft, hop_length=HOP_LENGTH, fmin=31,
+    S = librosa.stft(y=mono_mix, n_fft=N_FFT, hop_length=HOP_LENGTH)
+    S_bins = librosa.fft_frequencies(sr=SAMPLE_RATE, n_fft=N_FFT)
+    D = np.abs(S) ** 2
+    contrast = librosa.feature.spectral_contrast(S=S, sr=sample_rate, n_fft=N_FFT, hop_length=HOP_LENGTH, fmin=31,
                                                  n_bands=9)
 
-    mel = librosa.feature.melspectrogram(y=mono_mix, sr=sample_rate, S=S, n_fft=n_fft, hop_length=HOP_LENGTH)
+    mel = librosa.feature.melspectrogram(y=mono_mix, sr=sample_rate, S=D, n_fft=N_FFT, hop_length=HOP_LENGTH,
+                                         fmax=(HOP_LENGTH >> 1), n_mels=N_MELS, fmin=0)
+    mel_bins = librosa.core.mel_frequencies(n_mels=N_MELS, fmin=0, fmax=(HOP_LENGTH >> 1))
 
     y_harmonic, y_percussive = librosa.decompose.hpss(S=S)
 
     rms = librosa.feature.rms(S=S, hop_length=HOP_LENGTH, frame_length=HOP_LENGTH)
 
-    chroma = librosa.feature.chroma_stft(S=S, sr=sample_rate, n_fft=n_fft, hop_length=HOP_LENGTH)
+    chroma = librosa.feature.chroma_stft(S=S, sr=sample_rate, n_fft=N_FFT, hop_length=HOP_LENGTH)
 
     tonnetz = librosa.feature.tonnetz(y=mono_mix, sr=sample_rate, chroma=chroma)
 
-    feature = Feature(flux=flux, tempo=tempo, rolloff=rolloff, fft=np.abs(S), contrast=contrast, mel=mel,
-                      y_harmonic=y_harmonic, y_percussive=y_percussive, rms=rms, chroma=chroma, tonnetz=tonnetz,
-                      sample_index=sample_index)
+    feature = Feature(flux=flux, tempo=tempo, rolloff=rolloff, fft=np.abs(S), fft_complex=S, contrast=contrast, mel=mel,
+                      mel_bins=mel_bins, y_harmonic=y_harmonic, y_percussive=y_percussive, rms=rms, chroma=chroma,
+                      tonnetz=tonnetz, sample_index=sample_index, fft_bins=S_bins)
     return feature
 
 

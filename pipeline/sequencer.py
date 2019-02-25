@@ -3,14 +3,15 @@ import multiprocessing
 import pickle
 import queue
 import threading
-from collections import Generator
 
 import numpy as np
-from pipeline import features
 from keras.utils import Sequence
 
 from file_store import database
 from file_store.database import *
+from model.nn import InputNames
+from params import in_use_features
+from pipeline import features
 
 __all__ = ["Sequencer"]
 
@@ -81,7 +82,8 @@ class Sequencer(object):
             self.result_queue_train, self.done_queue_train = data_generator(train_set, self.batch_size)
 
         self.validate_sequence, self.processes_validate, self.thread_validate, self.manager_validate, \
-            self.input_queue_validate, self.result_queue_validate, self.done_queue_validate = data_generator(validate_set, self.batch_size)
+            self.input_queue_validate, self.result_queue_validate, self.done_queue_validate = \
+            data_generator(validate_set, self.batch_size)
 
         self.train_set = train_set
         self.validate_set = validate_set
@@ -109,7 +111,8 @@ def data_generator(data_set, batch_size):
         base_index = 0
         generator.__len__ = len(data_set)
         while True:
-            batch_features = np.zeros((batch_size, 1), dtype=np.float32)
+            # batch_features = np.zeros((batch_size, 1), dtype=np.float32)
+            batch_features = {}
             batch_labels = np.zeros((batch_size, 1), dtype=np.float32)
 
             for idx in range(min(batch_size, len(data_set) - base_index)):
@@ -119,7 +122,50 @@ def data_generator(data_set, batch_size):
                 computed_features = pickle.loads(computed_features)
                 selected_sample_indexes[song_record_id] = chosen_samples
 
-                batch_features[idx] = computed_features.tempo
+                for feature, should_train, feature_name in [
+                    (computed_features.normalize_tempo, in_use_features.USE_TEMPO, InputNames.TEMPO),
+                    (computed_features.normalize_flux, in_use_features.USE_FLUX, InputNames.FLUX),
+                    (computed_features.normalize_rolloff, in_use_features.USE_ROLLOFF, InputNames.ROLLOFF),
+                    (computed_features.normalize_mel, in_use_features.USE_MEL, InputNames.MEL),
+                    (computed_features.normalize_contrast, in_use_features.USE_CONTRAST, InputNames.CONTRAST),
+                    (computed_features.normalize_tonnetz, in_use_features.USE_TONNETZ, InputNames.TONNETZ),
+                    (computed_features.normalize_chroma, in_use_features.USE_CHROMA, InputNames.CHROMA),
+                    (computed_features.normalize_hpss, in_use_features.USE_HPSS, InputNames.HPSS),
+                    (computed_features.compute_fractional_rms_energy, in_use_features.USE_RMS_FRACTIONAL,
+                     InputNames.RMS_FRACTIONAL),
+                ]:
+                    if not should_train:
+                        continue
+                    result = feature()
+                    shape = list(result.shape)
+                    if not shape:
+                        shape = [1]
+                    shape = [batch_size] + shape
+                    feature_results = batch_features.setdefault(
+                        feature_name.get_nn_input_name(), np.zeros(shape, dtype=np.float32)
+                    )
+                    # np.copyto(feature_results[idx], result)
+                    if list(feature_results[idx].shape) != shape[1:]:
+                        try:
+                            feature_results[idx][tuple([slice(0, n) for n in shape[1:]])] = result
+                        except (ValueError, IndexError):
+                            __logger__.error("Failed to cast array of dimensions [{}] to [{}]".format(
+                                result.shape, feature_results[idx].shape))
+                            __logger__.error("Attempted to covert to: [{}]".format(
+                                tuple([slice(0, n) for n in shape[1:]])))
+                            __logger__.error("Trying again with indexing first element")
+                            try:
+                                feature_results[idx][tuple([slice(0, n) for n in result[0].shape])] = result[0]
+                            except (ValueError, IndexError):
+                                __logger__.error("Failed to cast array of dimensions [{}] to [{}]".format(
+                                    result[0].shape, feature_results[idx].shape))
+                                __logger__.error("Attempted to covert to: [{}]".format(
+                                    tuple([slice(0, n) for n in shape[1:]])))
+                                __logger__.error("This was the second attempt")
+                    else:
+                        feature_results[idx] = result
+                    pass
+
                 batch_labels[idx] = song_class
 
             base_index += batch_size

@@ -109,3 +109,9 @@
 
 - Discovered that unqlite seems to leak memory. Using ZODB
     - ZODB appears both fast and not to leak
+    
+# Feb 24, 2019 #
+
+- Computed the normalization and dimensions of all features
+- Created all the neural network models
+- Fed the neural network using the pipeline

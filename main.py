@@ -8,6 +8,7 @@ from pipeline.sequencer import *
 
 def main():
     model = nn.gen_model()
+    print(model.summary())
     sequencer = Sequencer()
 
     sequencer.initialize_dataset()

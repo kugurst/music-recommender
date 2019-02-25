@@ -16,7 +16,9 @@ def test_compute_features():
     gsrc = SongInfoDatabase.db.collection(database.DB_GOOD_SONGS)
     song_index = random.randint(0, len(gsrc) - 1)
 
-    features = compute_features(789, 1)
+    features = compute_features(123)
+    print(features.compute_fractional_rms_energy())
+    print(features.normalize_rms())
     print(features)
 
 
