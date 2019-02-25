@@ -103,7 +103,7 @@ def data_generator(data_set, batch_size):
         processes.append(p)
         p.start()
 
-    thread = threading.Thread(target=_compute_next_batch,
+    thread = threading.Thread(target=_feed_data_generators,
                               args=(batch_size, data_set, input_queue, done_queue, selected_sample_indexes))
     thread.start()
 
@@ -146,22 +146,7 @@ def data_generator(data_set, batch_size):
                     )
                     # np.copyto(feature_results[idx], result)
                     if list(feature_results[idx].shape) != shape[1:]:
-                        try:
-                            feature_results[idx][tuple([slice(0, n) for n in shape[1:]])] = result
-                        except (ValueError, IndexError):
-                            __logger__.error("Failed to cast array of dimensions [{}] to [{}]".format(
-                                result.shape, feature_results[idx].shape))
-                            __logger__.error("Attempted to covert to: [{}]".format(
-                                tuple([slice(0, n) for n in shape[1:]])))
-                            __logger__.error("Trying again with indexing first element")
-                            try:
-                                feature_results[idx][tuple([slice(0, n) for n in result[0].shape])] = result[0]
-                            except (ValueError, IndexError):
-                                __logger__.error("Failed to cast array of dimensions [{}] to [{}]".format(
-                                    result[0].shape, feature_results[idx].shape))
-                                __logger__.error("Attempted to covert to: [{}]".format(
-                                    tuple([slice(0, n) for n in shape[1:]])))
-                                __logger__.error("This was the second attempt")
+                        feature_results[idx][tuple([slice(0, n) for n in shape[1:]])] = result
                     else:
                         feature_results[idx] = result
                     pass
@@ -177,7 +162,7 @@ def data_generator(data_set, batch_size):
     return generator, processes, thread, manager, input_queue, result_queue, done_queue
 
 
-def _compute_next_batch(batch_size, data_set, input_queue, done_queue, selected_sample_indexes):
+def _feed_data_generators(batch_size, data_set, input_queue, done_queue, selected_sample_indexes):
     base_index = 0
 
     while True:

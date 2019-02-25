@@ -5,12 +5,11 @@ import os
 
 import keras
 import tensorflow as tf
+from keras import backend as K
 from keras.callbacks import ModelCheckpoint
 
 from params import in_use_features
 from pipeline.features import *
-
-# from keras import backend as K
 
 _NUM_GPUS_ENV = "NUM_GPUS"
 
@@ -265,10 +264,6 @@ def _rms_fractional_model():
     return model
 
 
-import numpy as np
-import keras.backend as K
-
-
 def false_positive_rate(**kwargs):
     def metric(labels, predictions):
         # any tensorflow metric
@@ -309,7 +304,7 @@ def train_model(model, sequencer, epochs=1):
     model.fit_generator(generator=sequencer.train_sequence(), validation_data=sequencer.validate_sequence(),
                         steps_per_epoch=math.ceil(len(sequencer.train_set) / sequencer.batch_size),
                         validation_steps=math.ceil(len(sequencer.validate_set) / sequencer.batch_size),
-                        class_weight={0: 0.5, 1: 1}, epochs=epochs,
+                        class_weight={0: 0.25, 1: 1}, epochs=epochs,
                         callbacks=[checkpointer], verbose=2,
                         max_queue_size=multiprocessing.cpu_count() ** 2)
 
