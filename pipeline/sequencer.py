@@ -91,7 +91,7 @@ class Sequencer(object):
 
         self.validate_sequence, self.processes_validate, self.thread_validate, self.manager_validate, \
             self.input_queue_validate, self.result_queue_validate, self.done_queue_validate = \
-            data_generator(validate_set, self.batch_size)
+            data_generator(validate_set, self.batch_size, validation_set_len=self.validate_samples)
 
         self.train_set = train_set
         self.validate_set = validate_set
@@ -146,7 +146,7 @@ def data_generator(data_set, batch_size, validation_set_len=None):
             batch_features = {}
             batch_labels = np.zeros((batch_size, 1), dtype=np.float32)
 
-            for idx in range(min(batch_size, len(data_set) - base_index)):
+            for idx in range(min(batch_size, generator.__len__ - base_index)):
                 computed_features, chosen_samples = result_queue.get()
 
                 #: :type: pipeline.features.Feature
@@ -186,7 +186,7 @@ def data_generator(data_set, batch_size, validation_set_len=None):
                 batch_labels[idx] = int(computed_features.is_good_song)
 
             base_index += batch_size
-            if base_index >= len(data_set):
+            if base_index >= generator.__len__:
                 base_index = 0
 
             yield batch_features, batch_labels
@@ -200,14 +200,17 @@ def _feed_feature_generators(batch_size, data_set, input_queue, done_queue, sele
 
     while True:
         try:
-            samples_in_batch = min(batch_size, len(data_set) - base_index)
+            length = len(data_set)
+            if validation_set_len:
+                length = validation_set_len
+            samples_in_batch = min(batch_size, length - base_index)
             for idx in range(samples_in_batch):
-                song_record_id, song_class = data_set[idx + base_index]
-                __logger__.debug(song_record_id)
-
                 if validation_set_len:
-                    input_queue.put(None, None, None, validation_set_len)
+                    input_queue.put((None, None, None, validation_set_len), timeout=1)
                 else:
+                    song_record_id, song_class = data_set[idx + base_index]
+                    __logger__.debug(song_record_id)
+
                     input_queue.put(
                         (song_record_id, song_class, selected_sample_indexes.setdefault(song_record_id, set()), None),
                         timeout=1
@@ -230,10 +233,10 @@ def get_features(input_queue, result_queue, data_set):
             else:
                 computed_features = features.compute_features(song_record_id, try_exclude_samples=chosen_samples)
 
-            if computed_features.sample_index in chosen_samples:
-                chosen_samples = {computed_features.sample_index}
-            elif validation_set_len:
+            if validation_set_len:
                 chosen_samples = None
+            elif computed_features.sample_index in chosen_samples:
+                chosen_samples = {computed_features.sample_index}
             else:
                 chosen_samples.add(computed_features.sample_index)
 

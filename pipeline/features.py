@@ -1,4 +1,5 @@
 import atexit
+import copy
 import logging
 import math
 import os
@@ -25,7 +26,7 @@ __all__ = ["generate_audio_sample", "compute_features", "Feature", "TEMPO_SHAPE"
            "MEL_SHAPE", "CONTRAST_SHAPE", "TONNETZ_SHAPE", "CHROMA_SHAPE", "HPSS_SHAPE", "RMS_SHAPE"]
 
 _AUDIO_AMPLITUDE_MAX = 32767
-_MAX_READS_BEFORE_ABORT = 12
+_MAX_READS_BEFORE_ABORT = 15
 HOP_LENGTH = 2 ** 15
 N_FFT = 2 ** 12
 N_MELS = 128
@@ -156,7 +157,7 @@ def compute_features(song_index, sample_index=None, song_file_or_path=None, try_
         samples_func = get_samples
 
     left_samples_set, right_samples_set, song_info_record, sample_index, is_good_song, song_record_id = samples_func(
-        song_index, sample_index, try_exclude_samples=try_exclude_samples, data_set_to_iterate=None)
+        song_index, sample_index, try_exclude_samples=try_exclude_samples, data_set_to_iterate=data_set_to_iterate)
     # generate_audio_sample(song_index, sample_index, song_file_or_path, delete_on_exit=False)
 
     # Normalize the audio
@@ -234,6 +235,7 @@ def get_samples_zodb(song_index, sample_index=None, try_exclude_samples=None, da
             song_index = data_set_to_iterate[get_samples.data_set_index][0]
             get_samples.song_sample_index += 1
         else:
+            # transaction.abort()
             get_samples.song_sample_index = 0
             get_samples.data_set_index = (get_samples.data_set_index + 1) % len(data_set_to_iterate)
 
@@ -251,11 +253,6 @@ def get_samples_zodb(song_index, sample_index=None, try_exclude_samples=None, da
     left_samples_sets, right_samples_sets = \
         song_sample_record.get_samples_left(), song_sample_record.get_samples_right()
 
-    if get_samples.abort_count % _MAX_READS_BEFORE_ABORT == 0:
-        transaction.abort()
-
-    get_samples.abort_count += 1
-
     if sample_index is None:
         if try_exclude_samples:
             unselected = set(range(len(left_samples_sets))) - try_exclude_samples
@@ -267,8 +264,15 @@ def get_samples_zodb(song_index, sample_index=None, try_exclude_samples=None, da
 
     left_samples_set, right_samples_set = left_samples_sets[sample_index], right_samples_sets[sample_index]
 
-    return left_samples_set, right_samples_set, song_info_record, sample_index, song_sample_record.is_good_song, \
-        song_index
+    ret = copy.deepcopy((left_samples_set, right_samples_set, song_info_record, sample_index,
+                        song_sample_record.is_good_song, song_index))
+
+    if get_samples.abort_count % _MAX_READS_BEFORE_ABORT == 0:
+        transaction.abort()
+
+    get_samples.abort_count += 1
+
+    return ret
 
 
 def get_samples(song_index, sample_index=None, try_exclude_samples=None, data_set_to_iterate=None):
