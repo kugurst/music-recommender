@@ -17,8 +17,10 @@ def test_compute_features():
     song_index = random.randint(0, len(gsrc) - 1)
 
     features = compute_features(123)
-    print(features.compute_fractional_rms_energy())
-    print(features.normalize_rms())
+    print(features.normalize_mel().shape)
+    print(features.normalize_contrast().shape)
+    print(features.normalize_chroma().shape)
+    print(features.normalize_flux().shape)
     print(features)
 
 

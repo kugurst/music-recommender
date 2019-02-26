@@ -122,34 +122,34 @@ def data_generator(data_set, batch_size):
                 computed_features = pickle.loads(computed_features)
                 selected_sample_indexes[song_record_id] = chosen_samples
 
-                for feature, should_train, feature_name in [
-                    (computed_features.normalize_tempo, in_use_features.USE_TEMPO, InputNames.TEMPO),
-                    (computed_features.normalize_flux, in_use_features.USE_FLUX, InputNames.FLUX),
-                    (computed_features.normalize_rolloff, in_use_features.USE_ROLLOFF, InputNames.ROLLOFF),
-                    (computed_features.normalize_mel, in_use_features.USE_MEL, InputNames.MEL),
-                    (computed_features.normalize_contrast, in_use_features.USE_CONTRAST, InputNames.CONTRAST),
-                    (computed_features.normalize_tonnetz, in_use_features.USE_TONNETZ, InputNames.TONNETZ),
-                    (computed_features.normalize_chroma, in_use_features.USE_CHROMA, InputNames.CHROMA),
-                    (computed_features.normalize_hpss, in_use_features.USE_HPSS, InputNames.HPSS),
+                for feature, should_train, feature_name, feature_shape in [
+                    (computed_features.normalize_tempo, in_use_features.USE_TEMPO, InputNames.TEMPO,
+                     features.TEMPO_SHAPE),
+                    (computed_features.normalize_flux, in_use_features.USE_FLUX, InputNames.FLUX, features.FLUX_SHAPE),
+                    (computed_features.normalize_rolloff, in_use_features.USE_ROLLOFF, InputNames.ROLLOFF,
+                     features.ROLLOFF_SHAPE),
+                    (computed_features.normalize_mel, in_use_features.USE_MEL, InputNames.MEL, features.MEL_SHAPE),
+                    (computed_features.normalize_contrast, in_use_features.USE_CONTRAST, InputNames.CONTRAST,
+                     features.CONTRAST_SHAPE),
+                    (computed_features.normalize_tonnetz, in_use_features.USE_TONNETZ, InputNames.TONNETZ,
+                     features.TONNETZ_SHAPE),
+                    (computed_features.normalize_chroma, in_use_features.USE_CHROMA, InputNames.CHROMA,
+                     features.CHROMA_SHAPE),
+                    (computed_features.normalize_hpss, in_use_features.USE_HPSS, InputNames.HPSS, features.HPSS_SHAPE),
                     (computed_features.compute_fractional_rms_energy, in_use_features.USE_RMS_FRACTIONAL,
-                     InputNames.RMS_FRACTIONAL),
+                     InputNames.RMS_FRACTIONAL, features.RMS_SHAPE),
                 ]:
                     if not should_train:
                         continue
                     result = feature()
-                    shape = list(result.shape)
-                    if not shape:
-                        shape = [1]
-                    shape = [batch_size] + shape
+                    shape = (batch_size,) + feature_shape
                     feature_results = batch_features.setdefault(
                         feature_name.get_nn_input_name(), np.zeros(shape, dtype=np.float32)
                     )
-                    # np.copyto(feature_results[idx], result)
-                    if list(feature_results[idx].shape) != shape[1:]:
-                        feature_results[idx][tuple([slice(0, n) for n in shape[1:]])] = result
+                    if result.shape != shape[1:]:
+                        feature_results[idx][tuple([slice(0, n) for n in result.shape])] = result
                     else:
                         feature_results[idx] = result
-                    pass
 
                 batch_labels[idx] = song_class
 

@@ -47,8 +47,19 @@ def gen_model(tempo=in_use_features.USE_TEMPO, flux=in_use_features.USE_FLUX, ro
     model = keras.models.Sequential()
     model.add(keras.layers.Merge(subsystems, mode="concat"))
     model.add(keras.layers.Activation("relu"))
-    model.add(keras.layers.Dense(1024,
-                                 kernel_initializer="glorot_normal", activation='relu'))
+
+    model.add(keras.layers.Dense(8192, kernel_initializer="glorot_normal"))
+    model.add(keras.layers.BatchNormalization())
+    model.add(keras.layers.Activation("relu"))
+
+    model.add(keras.layers.Dense(2048, kernel_initializer="glorot_normal"))
+    model.add(keras.layers.BatchNormalization())
+    model.add(keras.layers.Activation("relu"))
+
+    model.add(keras.layers.Dense(512, kernel_initializer="glorot_normal"))
+    model.add(keras.layers.BatchNormalization())
+    model.add(keras.layers.Activation("relu"))
+
     output_initializer = keras.initializers.RandomUniform(minval=-3e-3, maxval=3e-3)
     model.add(keras.layers.Dense(1, kernel_initializer=output_initializer, activation='sigmoid', name="classification"))
 
@@ -106,26 +117,28 @@ def _mel_model():
     model = keras.models.Sequential()
 
     # Convolutional input
-    model.add(keras.layers.Conv1D(32, kernel_size=4, strides=2, activation='relu', input_shape=MEL_SHAPE,
+    model.add(keras.layers.Conv1D(32, kernel_size=8, activation='relu', input_shape=MEL_SHAPE,
                                   name=InputNames.MEL.get_layer_name()))
     # Convolutional hidden 1
-    model.add(keras.layers.Conv1D(64, kernel_size=2, activation='relu'))
+    model.add(keras.layers.Conv1D(64, kernel_size=4, activation='relu'))
     model.add(keras.layers.MaxPooling1D(2, padding="same"))
     model.add(keras.layers.Conv1D(128, kernel_size=2, activation='relu'))
+    model.add(keras.layers.MaxPooling1D(2, padding="same"))
+    model.add(keras.layers.Conv1D(256, kernel_size=1, activation='relu'))
     model.add(keras.layers.MaxPooling1D(2, padding="same"))
 
     model.add(keras.layers.Flatten())
 
     # Fully connected 1
-    model.add(keras.layers.Dense(512))
+    model.add(keras.layers.Dense(1024))
     model.add(keras.layers.BatchNormalization())
     model.add(keras.layers.Activation("relu"))
     # Dropout layer
     model.add(keras.layers.Dropout(keep_probability))
     # # Fully connected 2
-    # model.add(Dense(512))
-    # model.add(BatchNormalization())
-    # model.add(Activation("relu"))
+    model.add(keras.layers.Dense(512))
+    model.add(keras.layers.BatchNormalization())
+    model.add(keras.layers.Activation("relu"))
 
     return model
 
@@ -136,26 +149,24 @@ def _contrast_model():
     model = keras.models.Sequential()
 
     # Convolutional input
-    model.add(keras.layers.Conv1D(32, kernel_size=4, strides=2, activation='relu', input_shape=CONTRAST_SHAPE,
+    model.add(keras.layers.Conv1D(32, kernel_size=5, activation='relu', input_shape=CONTRAST_SHAPE,
                                   name=InputNames.CONTRAST.get_layer_name()))
     # Convolutional hidden 1
-    model.add(keras.layers.Conv1D(64, kernel_size=2, activation='relu'))
-    model.add(keras.layers.MaxPooling1D(2, padding="same"))
-    model.add(keras.layers.Conv1D(128, kernel_size=2, activation='relu'))
+    model.add(keras.layers.Conv1D(64, kernel_size=3, activation='relu'))
     model.add(keras.layers.MaxPooling1D(2, padding="same"))
 
     model.add(keras.layers.Flatten())
 
     # Fully connected 1
-    model.add(keras.layers.Dense(512))
+    model.add(keras.layers.Dense(256))
     model.add(keras.layers.BatchNormalization())
     model.add(keras.layers.Activation("relu"))
     # Dropout layer
     model.add(keras.layers.Dropout(keep_probability))
     # # Fully connected 2
-    # model.add(Dense(512))
-    # model.add(BatchNormalization())
-    # model.add(Activation("relu"))
+    model.add(keras.layers.Dense(128))
+    model.add(keras.layers.BatchNormalization())
+    model.add(keras.layers.Activation("relu"))
 
     return model
 
@@ -196,12 +207,12 @@ def _chroma_model():
     model = keras.models.Sequential()
 
     # Convolutional input
-    model.add(keras.layers.Conv1D(32, kernel_size=4, strides=2, activation='relu', input_shape=CHROMA_SHAPE,
+    model.add(keras.layers.Conv1D(32, kernel_size=6, activation='relu', input_shape=CHROMA_SHAPE,
                                   name=InputNames.CHROMA.get_layer_name()))
     # Convolutional hidden 1
-    model.add(keras.layers.Conv1D(64, kernel_size=2, activation='relu'))
+    model.add(keras.layers.Conv1D(64, kernel_size=3, activation='relu'))
     model.add(keras.layers.MaxPooling1D(2, padding="same"))
-    model.add(keras.layers.Conv1D(128, kernel_size=2, activation='relu'))
+    model.add(keras.layers.Conv1D(128, kernel_size=1, activation='relu'))
     model.add(keras.layers.MaxPooling1D(2, padding="same"))
 
     model.add(keras.layers.Flatten())
@@ -213,9 +224,9 @@ def _chroma_model():
     # Dropout layer
     model.add(keras.layers.Dropout(keep_probability))
     # # Fully connected 2
-    # model.add(Dense(512))
-    # model.add(BatchNormalization())
-    # model.add(Activation("relu"))
+    model.add(keras.layers.Dense(256))
+    model.add(keras.layers.BatchNormalization())
+    model.add(keras.layers.Activation("relu"))
 
     return model
 
@@ -297,22 +308,26 @@ def compile_model(model):
     model.compile(optimizer='Adadelta', loss='binary_crossentropy', metrics=['accuracy', true_positive_rate])
 
 
-def train_model(model, sequencer, epochs=1):
+def train_model(model, sequencer, epochs=120):
     checkpointer = ModelCheckpoint(filepath='saved_models/weights.best.from_scratch.hdf5', verbose=1,
                                    save_best_only=True, save_weights_only=True)
 
-    model.fit_generator(generator=sequencer.train_sequence(), validation_data=sequencer.validate_sequence(),
-                        steps_per_epoch=math.ceil(len(sequencer.train_set) / sequencer.batch_size),
-                        validation_steps=math.ceil(len(sequencer.validate_set) / sequencer.batch_size),
-                        class_weight={0: 0.25, 1: 1}, epochs=epochs,
-                        callbacks=[checkpointer], verbose=2,
-                        max_queue_size=multiprocessing.cpu_count() ** 2)
+    try:
+        model.fit_generator(generator=sequencer.train_sequence(), validation_data=sequencer.validate_sequence(),
+                            steps_per_epoch=math.ceil(len(sequencer.train_set) / sequencer.batch_size),
+                            validation_steps=math.ceil(len(sequencer.validate_set) / sequencer.batch_size),
+                            class_weight={0: 0.25, 1: 1}, epochs=epochs,
+                            callbacks=[checkpointer], verbose=2,
+                            max_queue_size=multiprocessing.cpu_count() ** 2)
+    except:
+        model.save_weights('saved_models/weights.emergency.from_scratch.hdf5')
+        raise
+    finally:
+        # Stop generators
+        for processes in [sequencer.processes_train, sequencer.processes_validate]:
+            #: :type: multiprocessing.Process
+            for process in processes:  # type: multiprocessing.Process
+                process.terminate()
 
-    # Stop generators
-    for processes in [sequencer.processes_train, sequencer.processes_validate]:
-        #: :type: multiprocessing.Process
-        for process in processes:  # type: multiprocessing.Process
-            process.terminate()
-
-    sequencer.done_queue_train.put(0)
-    sequencer.done_queue_validate.put(0)
+        sequencer.done_queue_train.put(0)
+        sequencer.done_queue_validate.put(0)

@@ -5,6 +5,7 @@ import os
 import pickle
 import random
 import tempfile
+import warnings
 
 import librosa
 import numpy as np
@@ -24,7 +25,7 @@ __all__ = ["generate_audio_sample", "compute_features", "Feature", "TEMPO_SHAPE"
            "MEL_SHAPE", "CONTRAST_SHAPE", "TONNETZ_SHAPE", "CHROMA_SHAPE", "HPSS_SHAPE", "RMS_SHAPE"]
 
 _AUDIO_AMPLITUDE_MAX = 32767
-_MAX_READS_BEFORE_ABORT = 25
+_MAX_READS_BEFORE_ABORT = 15
 HOP_LENGTH = 2**15
 N_FFT = 2**12
 N_MELS = 128
@@ -137,7 +138,10 @@ class Feature(object):
 
         if np.max(self.rms) == 0:
             return self.rms[0]
-        res = (rms_masked / self.rms)[0]
+
+        with np.errstate(divide='ignore', invalid='ignore'):
+            res = (rms_masked / self.rms)[0]
+            res[~ np.isfinite(res)] = 0  # -inf inf NaN
         # if np.isnan(res).any() or np.isfinite(res).any():
         #     pass
         return res

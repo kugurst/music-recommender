@@ -14,6 +14,7 @@ def main():
 
     model = nn.gen_model()
     print(model.summary())
+    # exit(0)
     sequencer = Sequencer()
 
     sequencer.initialize_dataset()
