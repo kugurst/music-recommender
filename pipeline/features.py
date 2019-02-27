@@ -26,10 +26,9 @@ __all__ = ["generate_audio_sample", "compute_features", "Feature", "TEMPO_SHAPE"
 
 _AUDIO_AMPLITUDE_MAX = 32767
 _MAX_READS_BEFORE_ABORT = 30
-HOP_LENGTH = 2**15
-N_FFT = 2**12
+HOP_LENGTH = 2 ** 15
+N_FFT = 2 ** 12
 N_MELS = 128
-
 
 SAMPLE_RATE = 44100
 TEMPO_SHAPE = (1,)
@@ -45,10 +44,12 @@ TEMPO_MAX = 160
 
 
 class Feature(object):
-    def __init__(self, sample_index, flux=None, tempo=None, rolloff=None, fft=None, fft_complex=None, fft_bins=None,
-                 contrast=None, mel=None, mel_bins=None, y_harmonic=None, y_percussive=None, rms=None, chroma=None,
-                 tonnetz=None):
+    def __init__(self, song_record_id, sample_index, is_good_song, flux=None, tempo=None, rolloff=None, fft=None,
+                 fft_complex=None, fft_bins=None, contrast=None, mel=None, mel_bins=None, y_harmonic=None,
+                 y_percussive=None, rms=None, chroma=None, tonnetz=None):
+        self.song_record_id = song_record_id
         self.sample_index = sample_index
+        self.is_good_song = is_good_song
         self.flux = flux
         self.tempo = tempo
         self.rolloff = rolloff
@@ -151,14 +152,14 @@ class Feature(object):
 
 
 def compute_features(song_index, sample_index=None, song_file_or_path=None, try_exclude_samples=None,
-                     backend=DatabaseBackend.ZODB):
+                     backend=DatabaseBackend.ZODB, data_set_to_iterate=None):
     if backend == DatabaseBackend.ZODB:
         samples_func = get_samples_zodb
     else:
         samples_func = get_samples
 
-    left_samples_set, right_samples_set, song_info_record, sample_index = samples_func(
-        song_index, sample_index, try_exclude_samples=try_exclude_samples)
+    left_samples_set, right_samples_set, song_info_record, sample_index, is_good_song, song_record_id = samples_func(
+        song_index, sample_index, try_exclude_samples=try_exclude_samples, data_set_to_iterate=data_set_to_iterate)
     # generate_audio_sample(song_index, sample_index, song_file_or_path, delete_on_exit=False)
 
     # Normalize the audio
@@ -198,7 +199,8 @@ def compute_features(song_index, sample_index=None, song_file_or_path=None, try_
 
     feature = Feature(flux=flux, tempo=tempo, rolloff=rolloff, fft=np.abs(S), fft_complex=S, contrast=contrast, mel=mel,
                       mel_bins=mel_bins, y_harmonic=y_harmonic, y_percussive=y_percussive, rms=rms, chroma=chroma,
-                      tonnetz=tonnetz, sample_index=sample_index, fft_bins=S_bins)
+                      tonnetz=tonnetz, sample_index=sample_index, fft_bins=S_bins, is_good_song=is_good_song,
+                      song_record_id=song_record_id)
     return feature
 
 
@@ -207,13 +209,15 @@ def delete_if_present(file_name):
         os.remove(file_name)
 
 
-def get_samples_zodb(song_index, sample_index=None, try_exclude_samples=None):
+def get_samples_zodb(song_index, sample_index=None, try_exclude_samples=None, data_set_to_iterate=None):
     try:
         get_samples.gsic
         get_samples.bsic
         get_samples.songs
 
         get_samples.abort_count
+        get_samples.data_set_index
+        get_samples.song_sample_index
     except AttributeError:
         #: :type: unqlite.Collection
         get_samples.gsic = SongInfoDatabase.db.collection(database.DB_GOOD_SONGS)
@@ -222,20 +226,34 @@ def get_samples_zodb(song_index, sample_index=None, try_exclude_samples=None):
         get_samples.songs, _ = SongSampleZODBDatabase.get_songs(True)
 
         get_samples.abort_count = 0
+        get_samples.data_set_index = 0
+        get_samples.song_sample_index = 0
 
-    #: :type: file_store.database.SongSamplesZODBPersist
-    song_sample_record = get_samples.songs[song_index]
+    if data_set_to_iterate:
+        #: :type: file_store.database.SongSamplesZODBPersist
+        song_sample_record = get_samples.songs[data_set_to_iterate[get_samples.data_set_index][0]]
+        if get_samples.song_sample_index < len(song_sample_record.samples_indexes):
+            sample_index = get_samples.song_sample_index
+            song_index = data_set_to_iterate[get_samples.data_set_index][0]
+            get_samples.song_sample_index += 1
+        else:
+            # transaction.abort()
+            get_samples.song_sample_index = 0
+            get_samples.data_set_index = (get_samples.data_set_index + 1) % len(data_set_to_iterate)
+
+            song_sample_record = get_samples.songs[data_set_to_iterate[get_samples.data_set_index][0]]
+            sample_index = get_samples.song_sample_index
+            song_index = data_set_to_iterate[get_samples.data_set_index][0]
+            get_samples.song_sample_index += 1
+    else:
+        #: :type: file_store.database.SongSamplesZODBPersist
+        song_sample_record = get_samples.songs[song_index]
 
     song_info_collection = get_samples.gsic if song_sample_record.is_good_song else get_samples.bsic
     song_info_record = song_info_collection.fetch(song_sample_record.info_id)
 
     left_samples_sets, right_samples_sets = \
         song_sample_record.get_samples_left(), song_sample_record.get_samples_right()
-
-    if get_samples.abort_count % _MAX_READS_BEFORE_ABORT == 0:
-        transaction.abort()
-
-    get_samples.abort_count += 1
 
     if sample_index is None:
         if try_exclude_samples:
@@ -248,10 +266,18 @@ def get_samples_zodb(song_index, sample_index=None, try_exclude_samples=None):
 
     left_samples_set, right_samples_set = left_samples_sets[sample_index], right_samples_sets[sample_index]
 
-    return left_samples_set, right_samples_set, song_info_record, sample_index
+    ret = copy.deepcopy((left_samples_set, right_samples_set, song_info_record, sample_index,
+                        song_sample_record.is_good_song, song_index))
+
+    if get_samples.abort_count % _MAX_READS_BEFORE_ABORT == 0:
+        transaction.abort()
+
+    get_samples.abort_count += 1
+
+    return ret
 
 
-def get_samples(song_index, sample_index=None, try_exclude_samples=None):
+def get_samples(song_index, sample_index=None, try_exclude_samples=None, data_set_to_iterate=None):
     try:
         get_samples.gsic
         get_samples.gssc
@@ -297,7 +323,8 @@ def get_samples(song_index, sample_index=None, try_exclude_samples=None):
 
     left_samples_set, right_samples_set = left_samples_sets[sample_index], right_samples_sets[sample_index]
 
-    return left_samples_set, right_samples_set, song_info_record, sample_index
+    return left_samples_set, right_samples_set, song_info_record, sample_index, \
+           SongSamplesDatabase.SongSamplesODBC.SONG_IS_GOOD.get_value(song_sample_record), song_record_id
 
 
 def generate_audio_sample(song_index, sample_index=None, file_or_path=None, delete_on_exit=True):
