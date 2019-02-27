@@ -25,7 +25,7 @@ __all__ = ["generate_audio_sample", "compute_features", "Feature", "TEMPO_SHAPE"
            "MEL_SHAPE", "CONTRAST_SHAPE", "TONNETZ_SHAPE", "CHROMA_SHAPE", "HPSS_SHAPE", "RMS_SHAPE"]
 
 _AUDIO_AMPLITUDE_MAX = 32767
-_MAX_READS_BEFORE_ABORT = 15
+_MAX_READS_BEFORE_ABORT = 30
 HOP_LENGTH = 2**15
 N_FFT = 2**12
 N_MELS = 128
@@ -68,39 +68,42 @@ class Feature(object):
         return self.tempo / TEMPO_MAX
 
     def normalize_flux(self):
-        max_flux = np.max(np.abs(self.flux))
+        real_flux = np.abs(self.flux)
+        max_flux = np.max(real_flux)
         if max_flux == 0:
-            return self.flux
-        return self.flux / max_flux
+            return real_flux
+        return real_flux / max_flux
 
     def normalize_rolloff(self):
         return sklearn.preprocessing.normalize(self.rolloff, axis=1)[0]
 
     def normalize_mel(self):
-        max_mel = np.max(np.abs(self.mel))
+        real_mel = np.abs(self.mel)
+        max_mel = np.max(real_mel)
         if max_mel == 0:
-            return self.mel
-        return self.mel / max_mel
+            return real_mel
+        return real_mel / max_mel
 
     def normalize_contrast(self):
-        max_contrast = np.max(np.abs(self.contrast))
+        real_contrast = np.abs(self.contrast)
+        max_contrast = np.max(real_contrast)
         if max_contrast == 0:
-            return self.contrast
-        return self.contrast / max_contrast
+            return real_contrast
+        return real_contrast / max_contrast
 
     def normalize_tonnetz(self):
-        magnitude = np.abs(self.tonnetz)
-        max_tonnetz = np.max(magnitude)
+        real_tonnetz = np.abs(self.tonnetz)
+        max_tonnetz = np.max(real_tonnetz)
         if max_tonnetz == 0:
-            return magnitude
-        return magnitude / np.max(magnitude)
+            return real_tonnetz
+        return real_tonnetz / np.max(real_tonnetz)
 
     def normalize_chroma(self):
-        magnitude = np.abs(self.chroma)
-        max_chroma = np.max(magnitude)
+        real_chroma = np.abs(self.chroma)
+        max_chroma = np.max(real_chroma)
         if max_chroma == 0:
-            return magnitude
-        return magnitude / np.max(self.chroma)
+            return real_chroma
+        return real_chroma / np.max(self.chroma)
 
     def normalize_hpss(self):
         magnitude_h = np.abs(self.y_harmonic)
