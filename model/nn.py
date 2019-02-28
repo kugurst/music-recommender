@@ -37,35 +37,36 @@ def gen_model(tempo=in_use_features.USE_TEMPO, flux=in_use_features.USE_FLUX, ro
               mel=in_use_features.USE_MEL, contrast=in_use_features.USE_CONTRAST, tonnetz=in_use_features.USE_TONNETZ,
               chroma=in_use_features.USE_CHROMA, hpss=in_use_features.USE_HPSS,
               rms_fractional=in_use_features.USE_RMS_FRACTIONAL):
-    subsystems = []
-    for subsystem, in_use in [(_tempo_model, tempo), (_flux_model, flux), (_rolloff_model, rolloff), (_mel_model, mel),
-                              (_contrast_model, contrast), (_tonnetz_model, tonnetz), (_chroma_model, chroma),
-                              (_hpss_model, hpss), (_rms_fractional_model, rms_fractional)]:
-        if in_use:
-            subsystems.append(subsystem())
+    with tf.device('/cpu:0'):
+        subsystems = []
+        for subsystem, in_use in [(_tempo_model, tempo), (_flux_model, flux), (_rolloff_model, rolloff), (_mel_model, mel),
+                                  (_contrast_model, contrast), (_tonnetz_model, tonnetz), (_chroma_model, chroma),
+                                  (_hpss_model, hpss), (_rms_fractional_model, rms_fractional)]:
+            if in_use:
+                subsystems.append(subsystem())
 
-    model = keras.models.Sequential()
-    model.add(keras.layers.Merge(subsystems, mode="concat"))
-    model.add(keras.layers.Activation("relu"))
+        model = keras.models.Sequential()
+        model.add(keras.layers.Merge(subsystems, mode="concat"))
+        model.add(keras.layers.Activation("relu"))
 
-    model.add(keras.layers.Dense(8192, kernel_initializer="glorot_normal"))
-    model.add(keras.layers.BatchNormalization())
-    model.add(keras.layers.Activation("relu"))
+        model.add(keras.layers.Dense(8192, kernel_initializer="glorot_normal"))
+        model.add(keras.layers.BatchNormalization())
+        model.add(keras.layers.Activation("relu"))
 
-    model.add(keras.layers.Dense(2048, kernel_initializer="glorot_normal"))
-    model.add(keras.layers.BatchNormalization())
-    model.add(keras.layers.Activation("relu"))
+        model.add(keras.layers.Dense(2048, kernel_initializer="glorot_normal"))
+        model.add(keras.layers.BatchNormalization())
+        model.add(keras.layers.Activation("relu"))
 
-    model.add(keras.layers.Dense(512, kernel_initializer="glorot_normal"))
-    model.add(keras.layers.BatchNormalization())
-    model.add(keras.layers.Activation("relu"))
+        model.add(keras.layers.Dense(512, kernel_initializer="glorot_normal"))
+        model.add(keras.layers.BatchNormalization())
+        model.add(keras.layers.Activation("relu"))
 
-    output_initializer = keras.initializers.RandomUniform(minval=-3e-3, maxval=3e-3)
-    model.add(keras.layers.Dense(1, kernel_initializer=output_initializer, activation='sigmoid', name="classification"))
+        output_initializer = keras.initializers.RandomUniform(minval=-3e-3, maxval=3e-3)
+        model.add(keras.layers.Dense(1, kernel_initializer=output_initializer, activation='sigmoid', name="classification"))
 
-    num_gpus = int(os.environ.get(_NUM_GPUS_ENV, 1))
-    if num_gpus > 1:
-        model = keras.utils.multi_gpu_model(model, gpus=num_gpus, cpu_merge=True, cpu_relocation=False)
+        num_gpus = int(os.environ.get(_NUM_GPUS_ENV, 1))
+        if num_gpus > 1:
+            model = keras.utils.multi_gpu_model(model, gpus=num_gpus, cpu_merge=True, cpu_relocation=False)
     return model
 
 
