@@ -9,7 +9,7 @@ from BTrees import IOBTree
 import six
 import traceback
 
-import leveldb
+# import leveldb
 import persistent
 import ZODB
 from ZODB import FileStorage
@@ -29,7 +29,38 @@ DB_RECORD_FIELD = "__id"
 
 __all__ = ["SongInfoDatabase", "DB_GOOD_SONGS", "DB_BAD_SONGS", "DB_RECORD_FIELD", "update_collection_with_field",
            "remove_field_from_collection", "SongSamplesDatabase", "SongSamplesLVLDatabase", "SongSampleRecord",
-           "SongSampleZODBDatabase", "SongSamplesZODBPersist"]
+           "SongSampleZODBDatabase", "SongSamplesZODBPersist", "SongSamplesPickled"]
+
+
+class SongSamplesPickled(object):
+    def __init__(self, song_hash=None, info_id=None, is_good_song=None, samples_left=None, samples_right=None,
+                 samples_indexes=None):
+        self.song_hash = song_hash
+        self.info_id = info_id
+        self.is_good_song = is_good_song
+        # if samples_left:
+        #     self.samples_left = [sample_left.tolist() for sample_left in samples_left]
+        # else:
+        #     self.samples_left = None
+        # if samples_right:
+        #     self.samples_right = [samples_right.tolist() for samples_right in samples_right]
+        # else:
+        #     self.samples_right = None
+        self.samples_left = samples_left
+        self.samples_right = samples_right
+        self.samples_indexes = samples_indexes
+
+    def todict(self):
+        return {"song_hash": self.song_hash, "info_id": self.info_id, "is_good_song": self.is_good_song,
+                "samples_left": self.samples_left, "samples_right": self.samples_right,
+                "samples_indexes": self.samples_indexes}
+
+    def tolist(self):
+        return [self.song_hash, self.info_id, self.is_good_song, self.samples_left, self.samples_right,
+                self.samples_indexes]
+
+    def fromlist(self, pickled):
+        return SongSamplesPickled(*pickled)
 
 
 class SongSamplesZODBPersist(persistent.Persistent):
@@ -89,12 +120,16 @@ class SongSampleZODBDatabase(object):
     @classmethod
     def get_db(cls, read_only=False):
         if cls.__db is None:
+            db_file = ZODB.FileStorage.FileStorage(file_name=cls.database_file, read_only=read_only)
             # cls.__db = FileStorage.FileStorage(cls.database_file)
-            if read_only:
-                cls.__db = ZODB.DB(cls.database_file, read_only=True)
-            else:
-                cls.__db = ZODB.DB(cls.database_file)
+            cls.__db = ZODB.DB(db_file)
         return cls.__db
+
+    @classmethod
+    def close_db(cls):
+        if cls.__db is not None:
+            cls.__db.close()
+            cls.__db = None
 
     @classmethod
     def get_songs(cls, read_only=False):
