@@ -62,3 +62,4 @@ def test_SongSamplesLVLDatabase():
 
 def test_load_sample_features_database():
     SongSamplesFeatureDB.get_db()
+    print(SongSamplesFeatureDB.get_feature(0, chosen_samples=set(range(30))))

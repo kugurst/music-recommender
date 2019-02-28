@@ -9,6 +9,7 @@ from unqlite import UnQLite
 
 import ZODB
 # import leveldb
+import numpy as np
 import persistent
 import pyarrow
 import regex
@@ -60,6 +61,24 @@ class SongSamplesFeatureDB(object):
         return cls.__db
 
     @classmethod
+    def get_feature(cls, song_index=None, sample_index=None, chosen_samples=None):
+        if song_index is None:
+            song_index = np.random.randint(0, len(cls.get_db()))
+
+        song_features = cls.get_db()[song_index]
+
+        if sample_index is None:
+            if chosen_samples is not None:
+                all_samples = set(range(len(song_features)))
+                remaning_samples = list(all_samples - chosen_samples)
+                if remaning_samples:
+                    sample_index = np.random.choice(remaning_samples)
+            if sample_index is None:
+                sample_index = np.random.randint(0, len(song_features))
+
+        return song_index, sample_index, song_features[sample_index]
+
+    @classmethod
     def __load_database(cls):
         db_dir = cls.database_file
         contents = os.listdir(db_dir)
@@ -75,7 +94,6 @@ class SongSamplesFeatureDB(object):
                 db[idx] = feature_list
 
         return db
-
 
 
 class SongSamplesPickled(object):
