@@ -183,3 +183,12 @@ fabric.properties
 .idea/caches/build_file_checksums.ser
 
 report-example-*.pdf
+
+*_REMOTE_*
+*_LOCAL_*
+*_BACKUP_*
+*_BASE_*
+*.bak
+*.hdf5
+*.pickle
+*.orig

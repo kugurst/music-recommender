@@ -51,11 +51,11 @@ def gen_model(tempo=in_use_features.USE_TEMPO, flux=in_use_features.USE_FLUX, ro
         model.add(keras.layers.Merge(subsystems, mode="concat"))
         model.add(keras.layers.Activation("relu"))
 
-        if use_flat:
-            model.add(keras.layers.Dense(8192, kernel_initializer="glorot_normal", bias_initializer="glorot_normal"))
-            model.add(keras.layers.BatchNormalization())
-            model.add(keras.layers.Activation("relu"))
+        model.add(keras.layers.Dense(8192, kernel_initializer="glorot_normal", bias_initializer="glorot_normal"))
+        model.add(keras.layers.BatchNormalization())
+        model.add(keras.layers.Activation("relu"))
 
+        if use_flat:
             model.add(keras.layers.Dense(4096, kernel_initializer="glorot_normal", bias_initializer="glorot_normal"))
             model.add(keras.layers.BatchNormalization())
             model.add(keras.layers.Activation("relu"))
@@ -64,9 +64,10 @@ def gen_model(tempo=in_use_features.USE_TEMPO, flux=in_use_features.USE_FLUX, ro
         model.add(keras.layers.BatchNormalization())
         model.add(keras.layers.Activation("relu"))
 
-        model.add(keras.layers.Dense(1024, kernel_initializer="glorot_normal", bias_initializer="glorot_normal"))
-        model.add(keras.layers.BatchNormalization())
-        model.add(keras.layers.Activation("relu"))
+        if use_flat:
+            model.add(keras.layers.Dense(1024, kernel_initializer="glorot_normal", bias_initializer="glorot_normal"))
+            model.add(keras.layers.BatchNormalization())
+            model.add(keras.layers.Activation("relu"))
 
         model.add(keras.layers.Dense(512, kernel_initializer="glorot_normal", bias_initializer="glorot_normal"))
         model.add(keras.layers.BatchNormalization())
