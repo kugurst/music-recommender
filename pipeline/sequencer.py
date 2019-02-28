@@ -111,7 +111,7 @@ class Sequencer(object):
         finally:
             transaction.abort()
             conn.close()
-            SongSampleZODBDatabase.get_db(True).close()
+            SongSampleZODBDatabase.close_db()
 
         return ret
 
@@ -181,7 +181,10 @@ def data_generator(data_set, batch_size, validation_set_len=None):
                     if result.shape != shape[1:]:
                         feature_results[idx][tuple([slice(0, n) for n in result.shape])] = result
                     else:
-                        feature_results[idx] = result
+                        try:
+                            feature_results[idx] = result
+                        except np.ComplexWarning:
+                            feature_results[idx] = np.abs(result)
 
                 batch_labels[idx] = int(computed_features.is_good_song)
 

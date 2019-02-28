@@ -1,4 +1,5 @@
 import atexit
+import copy
 import logging
 import math
 import os
@@ -17,6 +18,7 @@ from scipy.io import wavfile
 
 from file_store import database
 from file_store.database import *
+from params import in_use_features
 from pre_process.audio_representation import *
 
 __logger__ = logging.getLogger(__name__)
@@ -46,7 +48,7 @@ TEMPO_MAX = 160
 class Feature(object):
     def __init__(self, song_record_id, sample_index, is_good_song, flux=None, tempo=None, rolloff=None, fft=None,
                  fft_complex=None, fft_bins=None, contrast=None, mel=None, mel_bins=None, y_harmonic=None,
-                 y_percussive=None, rms=None, chroma=None, tonnetz=None):
+                 y_percussive=None, rms=None, chroma=None, tonnetz=None, fractional_rms=None):
         self.song_record_id = song_record_id
         self.sample_index = sample_index
         self.is_good_song = is_good_song
@@ -64,6 +66,11 @@ class Feature(object):
         self.rms = rms
         self.chroma = chroma
         self.tonnetz = tonnetz
+
+        if fractional_rms:
+            self.fractional_rms = fractional_rms
+        else:
+            self.fractional_rms = self.compute_fractional_rms_energy()
 
     def normalize_tempo(self):
         return self.tempo / TEMPO_MAX
@@ -150,16 +157,52 @@ class Feature(object):
         #     pass
         return res
 
+    def todict(self):
+        # self.song_record_id = song_record_id
+        # self.sample_index = sample_index
+        # self.is_good_song = is_good_song
+        # self.flux = flux
+        # self.tempo = tempo
+        # self.rolloff = rolloff
+        # self.fft = fft
+        # self.fft_complex = fft_complex
+        # self.fft_bins = fft_bins
+        # self.contrast = contrast
+        # self.mel = mel
+        # self.mel_bins = mel_bins
+        # self.y_harmonic = y_harmonic
+        # self.y_percussive = y_percussive
+        # self.rms = rms
+        # self.chroma = chroma
+        # self.tonnetz = tonnetz
+        #
+        # self.fractional_rms = self.compute_fractional_rms_energy()
+        return {"song_record_id": self.song_record_id, "sample_index": self.sample_index,
+                "is_good_song": self.is_good_song, "flux": self.flux, "tempo": self.tempo, "rolloff": self.rolloff,
+                "contrast": self.contrast, "mel": self.mel, "chroma": self.chroma, "fft": self.fft,
+                "fractional_rms": self.fractional_rms, "fft_complex": self.fft_complex, "fft_bins": self.fft_bins,
+                "mel_bins": self.mel_bins, "y_harmonic": self.y_harmonic, "y_percussive": self.y_percussive,
+                "rms": self.rms, "tonnetz": self.tonnetz}
+
+    def tosmalldict(self):
+        return {"song_record_id": self.song_record_id, "sample_index": self.sample_index,
+                "is_good_song": self.is_good_song, "flux": self.flux, "tempo": self.tempo, "rolloff": self.rolloff,
+                "contrast": self.contrast, "mel": self.mel, "chroma": self.chroma, # "fft": self.fft,
+                "fractional_rms": self.fractional_rms, # "fft_complex": self.fft_complex, "fft_bins": self.fft_bins,
+                "mel_bins": self.mel_bins, # "y_harmonic": self.y_harmonic, "y_percussive": self.y_percussive,
+                "rms": self.rms, "tonnetz": self.tonnetz}
+
 
 def compute_features(song_index, sample_index=None, song_file_or_path=None, try_exclude_samples=None,
-                     backend=DatabaseBackend.ZODB, data_set_to_iterate=None):
+                     backend=DatabaseBackend.ZODB, data_set_to_iterate=None, song_index_is_record=False):
     if backend == DatabaseBackend.ZODB:
         samples_func = get_samples_zodb
     else:
         samples_func = get_samples
 
     left_samples_set, right_samples_set, song_info_record, sample_index, is_good_song, song_record_id = samples_func(
-        song_index, sample_index, try_exclude_samples=try_exclude_samples, data_set_to_iterate=data_set_to_iterate)
+        song_index, sample_index, try_exclude_samples=try_exclude_samples, data_set_to_iterate=data_set_to_iterate,
+        song_index_is_record=song_index_is_record)
     # generate_audio_sample(song_index, sample_index, song_file_or_path, delete_on_exit=False)
 
     # Normalize the audio
@@ -189,18 +232,24 @@ def compute_features(song_index, sample_index=None, song_file_or_path=None, try_
                                          fmax=(HOP_LENGTH >> 1), n_mels=N_MELS, fmin=0)
     mel_bins = librosa.core.mel_frequencies(n_mels=N_MELS, fmin=0, fmax=(HOP_LENGTH >> 1))
 
+    # if in_use_features.USE_HPSS:
     y_harmonic, y_percussive = librosa.decompose.hpss(S=S)
+    # else:
+    #     y_harmonic, y_percussive = None, None
 
     rms = librosa.feature.rms(S=S, hop_length=HOP_LENGTH, frame_length=HOP_LENGTH)
 
     chroma = librosa.feature.chroma_stft(S=S, sr=sample_rate, n_fft=N_FFT, hop_length=HOP_LENGTH)
 
+    # if in_use_features.USE_TONNETZ:
     tonnetz = librosa.feature.tonnetz(y=mono_mix, sr=sample_rate, chroma=chroma)
+    # else:
+    #     tonnetz = None
 
     feature = Feature(flux=flux, tempo=tempo, rolloff=rolloff, fft=np.abs(S), fft_complex=S, contrast=contrast, mel=mel,
                       mel_bins=mel_bins, y_harmonic=y_harmonic, y_percussive=y_percussive, rms=rms, chroma=chroma,
                       tonnetz=tonnetz, sample_index=sample_index, fft_bins=S_bins, is_good_song=is_good_song,
-                      song_record_id=song_record_id)
+                      song_record_id=song_index)
     return feature
 
 
@@ -209,47 +258,104 @@ def delete_if_present(file_name):
         os.remove(file_name)
 
 
-def get_samples_zodb(song_index, sample_index=None, try_exclude_samples=None, data_set_to_iterate=None):
-    try:
-        get_samples.gsic
-        get_samples.bsic
-        get_samples.songs
+class DBHolder(object):
+    gsic = None
+    bsic = None
+    songs = None
+    abort_count = None
+    data_set_index = None
+    song_sample_index = None
 
-        get_samples.abort_count
-        get_samples.data_set_index
-        get_samples.song_sample_index
-    except AttributeError:
-        #: :type: unqlite.Collection
-        get_samples.gsic = SongInfoDatabase.db.collection(database.DB_GOOD_SONGS)
-        #: :type: unqlite.Collection
-        get_samples.bsic = SongInfoDatabase.db.collection(database.DB_BAD_SONGS)
-        get_samples.songs, _ = SongSampleZODBDatabase.get_songs(True)
+    @classmethod
+    def get_gsic(cls):
+        if cls.gsic is None:
+            #: :type: unqlite.Collection
+            cls.gsic = SongInfoDatabase.db.collection(database.DB_GOOD_SONGS)
+        return cls.gsic
 
-        get_samples.abort_count = 0
-        get_samples.data_set_index = 0
-        get_samples.song_sample_index = 0
+    @classmethod
+    def get_bsic(cls):
+        if cls.bsic is None:
+            #: :type: unqlite.Collection
+            cls.bsic = SongInfoDatabase.db.collection(database.DB_BAD_SONGS)
+        return cls.bsic
 
+    @classmethod
+    def get_songs(cls):
+        if cls.songs is None:
+            cls.songs, _ = SongSampleZODBDatabase.get_songs(True)
+        return cls.songs
+
+    @classmethod
+    def get_abort_count(cls):
+        if cls.abort_count is None:
+            cls.abort_count = 0
+        return cls.abort_count
+
+    @classmethod
+    def set_abort_count(cls, abort_count):
+        cls.abort_count = abort_count
+
+    @classmethod
+    def inc_abort_count(cls):
+        cls.abort_count += 1
+
+    @classmethod
+    def get_data_set_index(cls):
+        if cls.data_set_index is None:
+            cls.data_set_index = 0
+        return cls.data_set_index
+
+    @classmethod
+    def set_data_set_index(cls, data_set_index):
+        cls.data_set_index = data_set_index
+
+    @classmethod
+    def inc_data_set_index(cls):
+        cls.data_set_index += 1
+
+    @classmethod
+    def get_song_sample_index(cls):
+        if cls.song_sample_index is None:
+            cls.song_sample_index = 0
+        return cls.song_sample_index
+
+    @classmethod
+    def set_song_sample_index(cls, song_sample_index):
+        cls.song_sample_index = song_sample_index
+
+    @classmethod
+    def inc_song_sample_index(cls):
+        cls.song_sample_index += 1
+
+
+def get_samples_zodb(song_index, sample_index=None, try_exclude_samples=None, data_set_to_iterate=None,
+                     song_index_is_record=False):
     if data_set_to_iterate:
         #: :type: file_store.database.SongSamplesZODBPersist
-        song_sample_record = get_samples.songs[data_set_to_iterate[get_samples.data_set_index][0]]
-        if get_samples.song_sample_index < len(song_sample_record.samples_indexes):
-            sample_index = get_samples.song_sample_index
-            song_index = data_set_to_iterate[get_samples.data_set_index][0]
-            get_samples.song_sample_index += 1
+        song_sample_record = DBHolder.get_songs()[data_set_to_iterate[DBHolder.get_data_set_index()][0]]
+        sample_index = DBHolder.get_song_sample_index()
+        if sample_index < len(song_sample_record.samples_indexes):
+            song_index = data_set_to_iterate[DBHolder.get_data_set_index()][0]
+            DBHolder.inc_song_sample_index()
         else:
             # transaction.abort()
-            get_samples.song_sample_index = 0
-            get_samples.data_set_index = (get_samples.data_set_index + 1) % len(data_set_to_iterate)
+            DBHolder.set_song_sample_index(0)
+            DBHolder.set_data_set_index((DBHolder.get_data_set_index() + 1) % len(data_set_to_iterate))
 
-            song_sample_record = get_samples.songs[data_set_to_iterate[get_samples.data_set_index][0]]
-            sample_index = get_samples.song_sample_index
-            song_index = data_set_to_iterate[get_samples.data_set_index][0]
-            get_samples.song_sample_index += 1
+            song_sample_record = DBHolder.get_songs()[data_set_to_iterate[DBHolder.get_data_set_index()][0]]
+            sample_index = DBHolder.get_song_sample_index()
+            song_index = data_set_to_iterate[DBHolder.get_data_set_index()][0]
+            DBHolder.inc_song_sample_index()
     else:
-        #: :type: file_store.database.SongSamplesZODBPersist
-        song_sample_record = get_samples.songs[song_index]
+        if song_index_is_record:
+            #: :type: file_store.database.SongSamplesZODBPersist
+            song_sample_record = song_index
+        else:
+            #: :type: file_store.database.SongSamplesZODBPersist
+            song_sample_record = DBHolder.get_songs()[song_index]
 
-    song_info_collection = get_samples.gsic if song_sample_record.is_good_song else get_samples.bsic
+    song_info_collection = DBHolder.get_gsic() if song_sample_record.is_good_song else DBHolder.get_bsic()
     song_info_record = song_info_collection.fetch(song_sample_record.info_id)
 
     left_samples_sets, right_samples_sets = \
@@ -269,15 +375,16 @@ def get_samples_zodb(song_index, sample_index=None, try_exclude_samples=None, da
     ret = copy.deepcopy((left_samples_set, right_samples_set, song_info_record, sample_index,
                         song_sample_record.is_good_song, song_index))
 
-    if get_samples.abort_count % _MAX_READS_BEFORE_ABORT == 0:
+    if DBHolder.get_abort_count() % _MAX_READS_BEFORE_ABORT == _MAX_READS_BEFORE_ABORT - 1:
         transaction.abort()
 
-    get_samples.abort_count += 1
+    DBHolder.inc_abort_count()
 
     return ret
 
 
-def get_samples(song_index, sample_index=None, try_exclude_samples=None, data_set_to_iterate=None):
+def get_samples(song_index, sample_index=None, try_exclude_samples=None, data_set_to_iterate=None,
+                song_index_is_record=False):
     try:
         get_samples.gsic
         get_samples.gssc

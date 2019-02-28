@@ -41,8 +41,7 @@ def gen_model(tempo=in_use_features.USE_TEMPO, flux=in_use_features.USE_FLUX, ro
               rms_fractional=in_use_features.USE_RMS_FRACTIONAL, use_flat=True):
     with tf.device('/cpu:0'):
         subsystems = []
-        for subsystem, in_use in [(_tempo_model, tempo), (_flux_model, flux), (_rolloff_model, rolloff),
-                                  (_mel_model, mel),
+        for subsystem, in_use in [(_tempo_model, tempo), (_flux_model, flux), (_rolloff_model, rolloff), (_mel_model, mel),
                                   (_contrast_model, contrast), (_tonnetz_model, tonnetz), (_chroma_model, chroma),
                                   (_hpss_model, hpss), (_rms_fractional_model, rms_fractional)]:
             if in_use:
