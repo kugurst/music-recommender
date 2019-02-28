@@ -2,6 +2,7 @@ import pickle
 
 from file_store import database
 from file_store.database import *
+from file_store.database import SongSamplesFeatureDB
 
 
 def test_update_song_paths_with_fft_status():
@@ -57,3 +58,7 @@ def test_SongSamplesLVLDatabase():
     # SongSamplesLVLDatabase.SongSamplesIndex.begin()
     # SongSamplesLVLDatabase.SongSamplesIndex.store(record)
     # SongSamplesLVLDatabase.SongSamplesIndex.commit()
+
+
+def test_load_sample_features_database():
+    SongSamplesFeatureDB.get_db()

@@ -4,24 +4,26 @@ import base64
 import enum
 import os
 import pickle
-
-from BTrees import IOBTree
-import six
 import traceback
-
-# import leveldb
-import persistent
-import ZODB
-from ZODB import FileStorage
-from util.class_property import ClassProperty
-
 from unqlite import UnQLite
 
+import ZODB
+# import leveldb
+import persistent
+import pyarrow
+import regex
+import six
+from BTrees import IOBTree
+from ZODB import FileStorage
+
+from pipeline.features import Feature
+from util.class_property import ClassProperty
 
 _SONG_INFO_DATABASE_FN_ENV = "SONG_INFO_DATABASE_PATH"
 _SONG_SAMPLES_DATABASE_FN_ENV = "SONG_SAMPLES_DATABASE_PATH"
 _SONG_SAMPLES_ZODB_DATABASE_FN_ENV = "SONG_SAMPLES_ZODB_DATABASE_PATH"
 _UNQLITE_READ_ONLY_ENV = "UNQLITE_READ_ONLY"
+_SONG_SAMPLES_PYARROW_DATABASE_FN_ENV = "SONG_FEATURES_PYARROW_DATABASE"
 
 DB_GOOD_SONGS = "good_song_indexes"
 DB_BAD_SONGS = "bad_song_indexes"
@@ -30,6 +32,50 @@ DB_RECORD_FIELD = "__id"
 __all__ = ["SongInfoDatabase", "DB_GOOD_SONGS", "DB_BAD_SONGS", "DB_RECORD_FIELD", "update_collection_with_field",
            "remove_field_from_collection", "SongSamplesDatabase", "SongSamplesLVLDatabase", "SongSampleRecord",
            "SongSampleZODBDatabase", "SongSamplesZODBPersist", "SongSamplesPickled"]
+
+
+class SongSamplesFeatureDB(object):
+    __db = None
+
+    @classmethod
+    def database_fn_env(cls):
+        return _SONG_SAMPLES_PYARROW_DATABASE_FN_ENV
+
+    @ClassProperty
+    @classmethod
+    def database_file(cls):
+        try:
+            db_fn = os.environ[cls.database_fn_env()]
+            if not os.path.exists(db_fn):
+                raise IOError("Song sample features directory does not exist: [{}]".format(db_fn))
+            return db_fn
+        except KeyError:
+            raise EnvironmentError("[{}] is not specified. Specify the intended path to the database file (will be "
+                                   "created if it does not exist)".format(cls.database_fn_env()))
+
+    @classmethod
+    def get_db(cls):
+        if cls.__db is None:
+            cls.__db = cls.__load_database()
+        return cls.__db
+
+    @classmethod
+    def __load_database(cls):
+        db_dir = cls.database_file
+        contents = os.listdir(db_dir)
+
+        db = dict()
+        idx_regex = regex.compile(r"(\d+).*?\.pyarrow", flags=regex.IGNORECASE)
+
+        for content in contents:
+            idx = int(idx_regex.match(content).group(1))
+            with open(os.path.join(db_dir, content), 'rb') as f:
+                feature_list = pyarrow.deserialize(f.read())
+                feature_list = [Feature.fromdict(feature) for feature in feature_list]
+                db[idx] = feature_list
+
+        return db
+
 
 
 class SongSamplesPickled(object):

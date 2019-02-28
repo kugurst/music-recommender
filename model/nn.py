@@ -38,7 +38,7 @@ class InputNames(enum.Enum):
 def gen_model(tempo=in_use_features.USE_TEMPO, flux=in_use_features.USE_FLUX, rolloff=in_use_features.USE_ROLLOFF,
               mel=in_use_features.USE_MEL, contrast=in_use_features.USE_CONTRAST, tonnetz=in_use_features.USE_TONNETZ,
               chroma=in_use_features.USE_CHROMA, hpss=in_use_features.USE_HPSS,
-              rms_fractional=in_use_features.USE_RMS_FRACTIONAL, use_flat=True):
+              rms_fractional=in_use_features.USE_RMS_FRACTIONAL, use_flat=False):
     with tf.device('/cpu:0'):
         subsystems = []
         for subsystem, in_use in [(_tempo_model, tempo), (_flux_model, flux), (_rolloff_model, rolloff), (_mel_model, mel),

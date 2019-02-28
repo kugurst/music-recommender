@@ -1,16 +1,12 @@
-import pyarrow
 import copy
-import json
-import marshal
 import multiprocessing
-import numpy as np
 import os
-import pickle
+import regex
 import random
-import tempfile
-import time
-import ujson
 
+import numpy as np
+import psutil
+import pyarrow
 import transaction
 
 from file_store import database
@@ -120,3 +116,22 @@ def _load_samples(song_queue, should_compute_features=False):
 
         if song_idx % 15 == 14:
             transaction.abort()
+
+
+def test_load_all_features():
+    db_dir = os.environ.get(database._SONG_SAMPLES_PYARROW_DATABASE_FN_ENV)
+    contents = os.listdir(db_dir)
+
+    db = dict()
+    idx_regex = regex.compile(r"(\d+).*?\.pyarrow", flags=regex.IGNORECASE)
+
+    for content in contents:
+        idx = int(idx_regex.match(content).group(1))
+        with open(os.path.join(db_dir, content), 'rb') as f:
+            feature_list = pyarrow.deserialize(f.read())
+            feature_list = [Feature.fromdict(feature) for feature in feature_list]
+            db[idx] = feature_list
+        pass
+
+    process = psutil.Process(os.getpid())
+    print(process.memory_info().rss)

@@ -58,8 +58,8 @@ class Sequencer(object):
             for idx in range(len(collection)):
                 record = collection.fetch(idx)
                 song_sample_id = SongInfoDatabase.SongInfoODBC.SONG_SAMPLES_ZODB_ID.get_value(record)
-                if song_sample_id >= total_len - 1:
-                    continue
+                # if song_sample_id >= total_len - 1:
+                #     continue
 
                 if is_good_song:
                     good_songs.append((song_sample_id, 1))

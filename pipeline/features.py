@@ -67,7 +67,7 @@ class Feature(object):
         self.chroma = chroma
         self.tonnetz = tonnetz
 
-        if fractional_rms:
+        if fractional_rms is not None:
             self.fractional_rms = fractional_rms
         else:
             self.fractional_rms = self.compute_fractional_rms_energy()
@@ -191,6 +191,10 @@ class Feature(object):
                 "fractional_rms": self.fractional_rms, # "fft_complex": self.fft_complex, "fft_bins": self.fft_bins,
                 "mel_bins": self.mel_bins, # "y_harmonic": self.y_harmonic, "y_percussive": self.y_percussive,
                 "rms": self.rms, "tonnetz": self.tonnetz}
+
+    @staticmethod
+    def fromdict(serialized_dict):
+        return Feature(**serialized_dict)
 
 
 def compute_features(song_index, sample_index=None, song_file_or_path=None, try_exclude_samples=None,
