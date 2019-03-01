@@ -9,7 +9,6 @@ import sklearn
 import tensorflow as tf
 from keras import backend as K
 from keras.callbacks import ModelCheckpoint
-import keras_metrics as km
 
 from params import in_use_features
 from pipeline.features import *
@@ -380,7 +379,7 @@ class BestPrecisionSaver(keras.callbacks.Callback):
         # tn, fp, fn, tp = sklearn.metrics.confusion_matrix(self.validate_target, y_pred_label)
 
         val_precision, val_recall, val_f1, _ = sklearn.metrics.precision_recall_fscore_support(
-            self.validate_target, y_pred_label, beta=0.5)
+            self.validate_target, y_pred_label, beta=0.5, labels=[0, 1], average="binary")
         print ("— val_f1: % f — val_precision: % f — val_recall % f" % (val_f1, val_precision, val_recall))
 
         if val_precision > self.best_precision:
@@ -392,7 +391,7 @@ class BestPrecisionSaver(keras.callbacks.Callback):
 
 
 def compile_model(model):
-    model.compile(optimizer='Adadelta', loss='logcosh', metrics=['accuracy', precision, recall])
+    model.compile(optimizer='Adadelta', loss='binary_crossentropy', metrics=['binary_accuracy'])
 
 
 def train_model(model, sequencer, epochs=120, batch_size=64):
@@ -429,7 +428,7 @@ def train_model(model, sequencer, epochs=120, batch_size=64):
     #     sequencer.done_queue_validate.put(0)
 
 
-def train_model_flat(model, train_set, train_target, validate_set, validate_target, epochs=4, batch_size_base=256):
+def train_model_flat(model, train_set, train_target, validate_set, validate_target, epochs=500, batch_size_base=1024):
     num_gpus = int(os.environ.get(_NUM_GPUS_ENV, 1))
     batch_size = num_gpus * batch_size_base
 
@@ -441,7 +440,7 @@ def train_model_flat(model, train_set, train_target, validate_set, validate_targ
     try:
         model.fit(
             x=train_set, y=train_target, validation_data=(validate_set, validate_target),
-                  shuffle=True, class_weight={0: 1, 1: 0.25},
+                  shuffle=True, class_weight={0: 0.125, 1: 1},
                   batch_size=batch_size, epochs=epochs, verbose=2, callbacks=[checkpointer, best_precision_checkpointer]
         )
     except:
