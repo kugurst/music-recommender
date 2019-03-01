@@ -9,7 +9,6 @@ import sklearn
 import tensorflow as tf
 from keras import backend as K
 from keras.callbacks import ModelCheckpoint
-import keras_metrics as km
 
 from params import in_use_features
 from pipeline.features import *
@@ -39,7 +38,7 @@ class InputNames(enum.Enum):
 def gen_model(tempo=in_use_features.USE_TEMPO, flux=in_use_features.USE_FLUX, rolloff=in_use_features.USE_ROLLOFF,
               mel=in_use_features.USE_MEL, contrast=in_use_features.USE_CONTRAST, tonnetz=in_use_features.USE_TONNETZ,
               chroma=in_use_features.USE_CHROMA, hpss=in_use_features.USE_HPSS,
-              rms_fractional=in_use_features.USE_RMS_FRACTIONAL, use_flat=False):
+              rms_fractional=in_use_features.USE_RMS_FRACTIONAL, use_flat=True):
     with tf.device('/cpu:0'):
         subsystems = []
         for subsystem, in_use in [(_tempo_model, tempo), (_flux_model, flux), (_rolloff_model, rolloff), (_mel_model, mel),
@@ -380,7 +379,7 @@ class BestPrecisionSaver(keras.callbacks.Callback):
         # tn, fp, fn, tp = sklearn.metrics.confusion_matrix(self.validate_target, y_pred_label)
 
         val_precision, val_recall, val_f1, _ = sklearn.metrics.precision_recall_fscore_support(
-            self.validate_target, y_pred_label, beta=0.5)
+            self.validate_target, y_pred_label, beta=0.5, labels=[0, 1], average="binary")
         print ("— val_f1: % f — val_precision: % f — val_recall % f" % (val_f1, val_precision, val_recall))
 
         if val_precision > self.best_precision:
@@ -395,7 +394,7 @@ def compile_model(model):
     model.compile(optimizer='Adadelta', loss='logcosh', metrics=['accuracy', precision, recall])
 
 
-def train_model(model, sequencer, epochs=120, batch_size=64):
+def train_model(model, sequencer, epochs=500, batch_size=64):
     # metrics = Metrics()
     checkpointer = ModelCheckpoint(filepath='saved_models/weights.best.from_scratch.hdf5', verbose=1,
                                    save_best_only=True, save_weights_only=True)
@@ -429,20 +428,21 @@ def train_model(model, sequencer, epochs=120, batch_size=64):
     #     sequencer.done_queue_validate.put(0)
 
 
-def train_model_flat(model, train_set, train_target, validate_set, validate_target, epochs=4, batch_size_base=256):
+def train_model_flat(model, train_set, train_target, validate_set, validate_target, epochs=500, batch_size_base=1024):
     num_gpus = int(os.environ.get(_NUM_GPUS_ENV, 1))
     batch_size = num_gpus * batch_size_base
 
     best_precision_checkpointer = BestPrecisionSaver('saved_models/weights.best_precision.from_scratch.hdf5',
-                                                    validate_set, validate_target, batch_size)
+                                                     validate_set, validate_target, batch_size)
     checkpointer = ModelCheckpoint(filepath='saved_models/weights.best_loss.from_scratch.hdf5', verbose=1,
                                    save_best_only=True, save_weights_only=True)
 
+    print("now fitting")
     try:
         model.fit(
             x=train_set, y=train_target, validation_data=(validate_set, validate_target),
-                  shuffle=True, class_weight={0: 1, 1: 0.25},
-                  batch_size=batch_size, epochs=epochs, verbose=2, callbacks=[checkpointer, best_precision_checkpointer]
+            shuffle=True, class_weight={0: 0.125, 1: 1},
+            batch_size=batch_size, epochs=epochs, verbose=2, callbacks=[checkpointer, best_precision_checkpointer]
         )
     except:
         model.save_weights('saved_models/weights.emergency.from_scratch.hdf5')

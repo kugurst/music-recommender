@@ -1,0 +1,276 @@
+"C:\Users\Mark Aligbe\PycharmProjects\udacity_python\Scripts\python.exe" "C:/Users/Mark Aligbe/Documents/machine_learning/udacity/projects/capstone/main.py"
+Using TensorFlow backend.
+C:\Users\Mark Aligbe\Documents\machine_learning\udacity\projects\capstone\model\nn.py:51: UserWarning: The `Merge` layer is deprecated and will be removed after 08/2017. Use instead layers from `keras.layers.merge`, e.g. `add`, `concatenate`, etc.
+  model.add(keras.layers.Merge(subsystems, mode="concat"))
+2019-02-28 23:34:06.011163: I C:\Users\User\Source\Repos\tensorflow\tensorflow\core\common_runtime\gpu\gpu_device.cc:1105] Found device 0 with properties:
+name: GeForce GTX 1080 Ti major: 6 minor: 1 memoryClockRate(GHz): 1.6705
+pciBusID: 0000:08:00.0
+totalMemory: 11.00GiB freeMemory: 9.10GiB
+2019-02-28 23:34:06.120812: I C:\Users\User\Source\Repos\tensorflow\tensorflow\core\common_runtime\gpu\gpu_device.cc:1105] Found device 1 with properties:
+name: GeForce GTX 1080 Ti major: 6 minor: 1 memoryClockRate(GHz): 1.62
+pciBusID: 0000:09:00.0
+totalMemory: 11.00GiB freeMemory: 9.10GiB
+2019-02-28 23:34:06.121163: I C:\Users\User\Source\Repos\tensorflow\tensorflow\core\common_runtime\gpu\gpu_device.cc:1120] Device peer to peer matrix
+2019-02-28 23:34:06.121341: I C:\Users\User\Source\Repos\tensorflow\tensorflow\core\common_runtime\gpu\gpu_device.cc:1126] DMA: 0 1
+2019-02-28 23:34:06.121459: I C:\Users\User\Source\Repos\tensorflow\tensorflow\core\common_runtime\gpu\gpu_device.cc:1136] 0:   Y N
+2019-02-28 23:34:06.121576: I C:\Users\User\Source\Repos\tensorflow\tensorflow\core\common_runtime\gpu\gpu_device.cc:1136] 1:   N Y
+2019-02-28 23:34:06.121712: I C:\Users\User\Source\Repos\tensorflow\tensorflow\core\common_runtime\gpu\gpu_device.cc:1195] Creating TensorFlow device (/device:GPU:0) -> (device: 0, name: GeForce GTX 1080 Ti, pci bus id: 0000:08:00.0, compute capability: 6.1)
+2019-02-28 23:34:06.121962: I C:\Users\User\Source\Repos\tensorflow\tensorflow\core\common_runtime\gpu\gpu_device.cc:1195] Creating TensorFlow device (/device:GPU:1) -> (device: 1, name: GeForce GTX 1080 Ti, pci bus id: 0000:09:00.0, compute capability: 6.1)
+__________________________________________________________________________________________________
+Layer (type)                    Output Shape         Param #     Connected to
+==================================================================================================
+tempo_input (InputLayer)        (None, 1)            0
+__________________________________________________________________________________________________
+flux_input (InputLayer)         (None, 7)            0
+__________________________________________________________________________________________________
+rolloff_input (InputLayer)      (None, 7)            0
+__________________________________________________________________________________________________
+mel_input (InputLayer)          (None, 128, 7)       0
+__________________________________________________________________________________________________
+contrast_input (InputLayer)     (None, 10, 7)        0
+__________________________________________________________________________________________________
+chroma_input (InputLayer)       (None, 12, 7)        0
+__________________________________________________________________________________________________
+rms_fractional_input (InputLaye (None, 7)            0
+__________________________________________________________________________________________________
+lambda_1 (Lambda)               (None, 1)            0           tempo_input[0][0]
+__________________________________________________________________________________________________
+lambda_2 (Lambda)               (None, 7)            0           flux_input[0][0]
+__________________________________________________________________________________________________
+lambda_3 (Lambda)               (None, 7)            0           rolloff_input[0][0]
+__________________________________________________________________________________________________
+lambda_4 (Lambda)               (None, 128, 7)       0           mel_input[0][0]
+__________________________________________________________________________________________________
+lambda_5 (Lambda)               (None, 10, 7)        0           contrast_input[0][0]
+__________________________________________________________________________________________________
+lambda_6 (Lambda)               (None, 12, 7)        0           chroma_input[0][0]
+__________________________________________________________________________________________________
+lambda_7 (Lambda)               (None, 7)            0           rms_fractional_input[0][0]
+__________________________________________________________________________________________________
+lambda_8 (Lambda)               (None, 1)            0           tempo_input[0][0]
+__________________________________________________________________________________________________
+lambda_9 (Lambda)               (None, 7)            0           flux_input[0][0]
+__________________________________________________________________________________________________
+lambda_10 (Lambda)              (None, 7)            0           rolloff_input[0][0]
+__________________________________________________________________________________________________
+lambda_11 (Lambda)              (None, 128, 7)       0           mel_input[0][0]
+__________________________________________________________________________________________________
+lambda_12 (Lambda)              (None, 10, 7)        0           contrast_input[0][0]
+__________________________________________________________________________________________________
+lambda_13 (Lambda)              (None, 12, 7)        0           chroma_input[0][0]
+__________________________________________________________________________________________________
+lambda_14 (Lambda)              (None, 7)            0           rms_fractional_input[0][0]
+__________________________________________________________________________________________________
+sequential_8 (Sequential)       (None, 1)            53426177    lambda_1[0][0]
+                                                                 lambda_2[0][0]
+                                                                 lambda_3[0][0]
+                                                                 lambda_4[0][0]
+                                                                 lambda_5[0][0]
+                                                                 lambda_6[0][0]
+                                                                 lambda_7[0][0]
+                                                                 lambda_8[0][0]
+                                                                 lambda_9[0][0]
+                                                                 lambda_10[0][0]
+                                                                 lambda_11[0][0]
+                                                                 lambda_12[0][0]
+                                                                 lambda_13[0][0]
+                                                                 lambda_14[0][0]
+__________________________________________________________________________________________________
+classification (Concatenate)    (None, 1)            0           sequential_8[1][0]
+                                                                 sequential_8[2][0]
+==================================================================================================
+Total params: 53,426,177
+Trainable params: 53,394,433
+Non-trainable params: 31,744
+__________________________________________________________________________________________________
+None
+now fitting
+Train on 118321 samples, validate on 33840 samples
+Epoch 1/500
+ - 48s - loss: 0.0320 - acc: 0.2918 - precision: 0.2865 - recall: 0.9882 - val_loss: 0.2056 - val_acc: 0.2863 - val_precision: 0.2863 - val_recall: 1.0000
+
+Epoch 00001: val_loss improved from inf to 0.20563, saving model to saved_models/weights.best_loss.from_scratch.hdf5
+— val_f1:  0.334023 — val_precision:  0.286348 — val_recall  1.000000
+Validation precision improved from [0] to [0.28634751773049644]. Saving model to [saved_models/weights.best_precision.from_scratch.hdf5]
+Epoch 2/500
+ - 46s - loss: 0.0310 - acc: 0.2863 - precision: 0.2863 - recall: 1.0000 - val_loss: 0.2044 - val_acc: 0.2863 - val_precision: 0.2863 - val_recall: 1.0000
+
+Epoch 00002: val_loss improved from 0.20563 to 0.20444, saving model to saved_models/weights.best_loss.from_scratch.hdf5
+— val_f1:  0.334023 — val_precision:  0.286348 — val_recall  1.000000
+Epoch 3/500
+ - 46s - loss: 0.0303 - acc: 0.2863 - precision: 0.2863 - recall: 1.0000 - val_loss: 0.2014 - val_acc: 0.2864 - val_precision: 0.2864 - val_recall: 1.0000
+
+Epoch 00003: val_loss improved from 0.20444 to 0.20142, saving model to saved_models/weights.best_loss.from_scratch.hdf5
+— val_f1:  0.334050 — val_precision:  0.286373 — val_recall  1.000000
+Validation precision improved from [0.28634751773049644] to [0.28637290539941485]. Saving model to [saved_models/weights.best_precision.from_scratch.hdf5]
+Epoch 4/500
+ - 46s - loss: 0.0292 - acc: 0.2929 - precision: 0.2881 - recall: 0.9993 - val_loss: 0.1884 - val_acc: 0.2984 - val_precision: 0.2892 - val_recall: 0.9949
+
+Epoch 00004: val_loss improved from 0.20142 to 0.18840, saving model to saved_models/weights.best_loss.from_scratch.hdf5
+— val_f1:  0.337027 — val_precision:  0.289216 — val_recall  0.994943
+Validation precision improved from [0.28637290539941485] to [0.28921553922303883]. Saving model to [saved_models/weights.best_precision.from_scratch.hdf5]
+Epoch 5/500
+ - 46s - loss: 0.0269 - acc: 0.3564 - precision: 0.3074 - recall: 0.9942 - val_loss: 0.2087 - val_acc: 0.3092 - val_precision: 0.2916 - val_recall: 0.9884
+
+Epoch 00005: val_loss did not improve from 0.18840
+— val_f1:  0.339486 — val_precision:  0.291621 — val_recall  0.988442
+Validation precision improved from [0.28921553922303883] to [0.29162099622457677]. Saving model to [saved_models/weights.best_precision.from_scratch.hdf5]
+Epoch 6/500
+ - 46s - loss: 0.0219 - acc: 0.5245 - precision: 0.3754 - recall: 0.9898 - val_loss: 0.2058 - val_acc: 0.3426 - val_precision: 0.2982 - val_recall: 0.9576
+
+Epoch 00006: val_loss did not improve from 0.18840
+— val_f1:  0.345855 — val_precision:  0.298226 — val_recall  0.957585
+Validation precision improved from [0.29162099622457677] to [0.29822587902551906]. Saving model to [saved_models/weights.best_precision.from_scratch.hdf5]
+Epoch 7/500
+ - 46s - loss: 0.0157 - acc: 0.7026 - precision: 0.4912 - recall: 0.9914 - val_loss: 0.1886 - val_acc: 0.4053 - val_precision: 0.3088 - val_recall: 0.8699
+
+Epoch 00007: val_loss did not improve from 0.18840
+— val_f1:  0.354577 — val_precision:  0.308836 — val_recall  0.869969
+Validation precision improved from [0.29822587902551906] to [0.3088364595545135]. Saving model to [saved_models/weights.best_precision.from_scratch.hdf5]
+Epoch 8/500
+ - 46s - loss: 0.0103 - acc: 0.8259 - precision: 0.6248 - recall: 0.9925 - val_loss: 0.1462 - val_acc: 0.5499 - val_precision: 0.3373 - val_recall: 0.5932
+
+Epoch 00008: val_loss improved from 0.18840 to 0.14624, saving model to saved_models/weights.best_loss.from_scratch.hdf5
+— val_f1:  0.369190 — val_precision:  0.337344 — val_recall  0.593189
+Validation precision improved from [0.3088364595545135] to [0.3373437408298609]. Saving model to [saved_models/weights.best_precision.from_scratch.hdf5]
+Epoch 9/500
+ - 46s - loss: 0.0056 - acc: 0.9167 - precision: 0.7789 - recall: 0.9961 - val_loss: 0.1851 - val_acc: 0.4359 - val_precision: 0.3102 - val_recall: 0.7928
+
+Epoch 00009: val_loss did not improve from 0.14624
+— val_f1:  0.353261 — val_precision:  0.310252 — val_recall  0.792982
+Epoch 10/500
+ - 46s - loss: 0.0024 - acc: 0.9714 - precision: 0.9095 - recall: 0.9998 - val_loss: 0.1426 - val_acc: 0.5453 - val_precision: 0.3342 - val_recall: 0.5930
+
+Epoch 00010: val_loss improved from 0.14624 to 0.14263, saving model to saved_models/weights.best_loss.from_scratch.hdf5
+— val_f1:  0.366292 — val_precision:  0.334322 — val_recall  0.593189
+Epoch 11/500
+ - 46s - loss: 9.6813e-04 - acc: 0.9894 - precision: 0.9641 - recall: 1.0000 - val_loss: 0.1294 - val_acc: 0.5896 - val_precision: 0.3440 - val_recall: 0.4775
+
+Epoch 00011: val_loss improved from 0.14263 to 0.12940, saving model to saved_models/weights.best_loss.from_scratch.hdf5
+— val_f1:  0.364342 — val_precision:  0.343964 — val_recall  0.477503
+Validation precision improved from [0.3373437408298609] to [0.34396372286648824]. Saving model to [saved_models/weights.best_precision.from_scratch.hdf5]
+Epoch 12/500
+ - 46s - loss: 5.1877e-04 - acc: 0.9952 - precision: 0.9835 - recall: 0.9999 - val_loss: 0.1269 - val_acc: 0.6029 - val_precision: 0.3490 - val_recall: 0.4473
+
+Epoch 00012: val_loss improved from 0.12940 to 0.12693, saving model to saved_models/weights.best_loss.from_scratch.hdf5
+— val_f1:  0.365133 — val_precision:  0.349090 — val_recall  0.447368
+Validation precision improved from [0.34396372286648824] to [0.34909003060074084]. Saving model to [saved_models/weights.best_precision.from_scratch.hdf5]
+Epoch 13/500
+ - 46s - loss: 3.3759e-04 - acc: 0.9970 - precision: 0.9898 - recall: 0.9999 - val_loss: 0.1235 - val_acc: 0.6179 - val_precision: 0.3519 - val_recall: 0.3979
+
+Epoch 00013: val_loss improved from 0.12693 to 0.12353, saving model to saved_models/weights.best_loss.from_scratch.hdf5
+— val_f1:  0.360348 — val_precision:  0.352055 — val_recall  0.397833
+Validation precision improved from [0.34909003060074084] to [0.35205479452054794]. Saving model to [saved_models/weights.best_precision.from_scratch.hdf5]
+Epoch 14/500
+ - 46s - loss: 2.5680e-04 - acc: 0.9978 - precision: 0.9924 - recall: 0.9999 - val_loss: 0.1216 - val_acc: 0.6282 - val_precision: 0.3551 - val_recall: 0.3661
+
+Epoch 00014: val_loss improved from 0.12353 to 0.12159, saving model to saved_models/weights.best_loss.from_scratch.hdf5
+— val_f1:  0.357344 — val_precision:  0.355233 — val_recall  0.366047
+Validation precision improved from [0.35205479452054794] to [0.35523284927391086]. Saving model to [saved_models/weights.best_precision.from_scratch.hdf5]
+Epoch 15/500
+ - 46s - loss: 1.9115e-04 - acc: 0.9985 - precision: 0.9947 - recall: 0.9999 - val_loss: 0.1198 - val_acc: 0.6382 - val_precision: 0.3591 - val_recall: 0.3363
+
+Epoch 00015: val_loss improved from 0.12159 to 0.11979, saving model to saved_models/weights.best_loss.from_scratch.hdf5
+— val_f1:  0.354423 — val_precision:  0.359285 — val_recall  0.336223
+Validation precision improved from [0.35523284927391086] to [0.3592853992059991]. Saving model to [saved_models/weights.best_precision.from_scratch.hdf5]
+Epoch 16/500
+ - 46s - loss: 1.6387e-04 - acc: 0.9986 - precision: 0.9950 - recall: 1.0000 - val_loss: 0.1188 - val_acc: 0.6437 - val_precision: 0.3595 - val_recall: 0.3133
+
+Epoch 00016: val_loss improved from 0.11979 to 0.11883, saving model to saved_models/weights.best_loss.from_scratch.hdf5
+— val_f1:  0.349399 — val_precision:  0.359758 — val_recall  0.313313
+Validation precision improved from [0.3592853992059991] to [0.35975826519729825]. Saving model to [saved_models/weights.best_precision.from_scratch.hdf5]
+Epoch 17/500
+ - 46s - loss: 1.3330e-04 - acc: 0.9990 - precision: 0.9964 - recall: 0.9999 - val_loss: 0.1187 - val_acc: 0.6460 - val_precision: 0.3602 - val_recall: 0.3052
+
+Epoch 00017: val_loss improved from 0.11883 to 0.11868, saving model to saved_models/weights.best_loss.from_scratch.hdf5
+— val_f1:  0.347866 — val_precision:  0.360478 — val_recall  0.305160
+Validation precision improved from [0.35975826519729825] to [0.3604778739485554]. Saving model to [saved_models/weights.best_precision.from_scratch.hdf5]
+Epoch 18/500
+ - 46s - loss: 1.1714e-04 - acc: 0.9990 - precision: 0.9967 - recall: 1.0000 - val_loss: 0.1192 - val_acc: 0.6449 - val_precision: 0.3599 - val_recall: 0.3094
+
+Epoch 00018: val_loss did not improve from 0.11868
+— val_f1:  0.348783 — val_precision:  0.360250 — val_recall  0.309391
+Epoch 19/500
+ - 46s - loss: 1.1063e-04 - acc: 0.9991 - precision: 0.9971 - recall: 0.9999 - val_loss: 0.1196 - val_acc: 0.6448 - val_precision: 0.3602 - val_recall: 0.3106
+
+Epoch 00019: val_loss did not improve from 0.11868
+— val_f1:  0.349185 — val_precision:  0.360402 — val_recall  0.310526
+Epoch 20/500
+ - 46s - loss: 9.7274e-05 - acc: 0.9991 - precision: 0.9969 - recall: 1.0000 - val_loss: 0.1191 - val_acc: 0.6483 - val_precision: 0.3620 - val_recall: 0.3001
+
+Epoch 00020: val_loss did not improve from 0.11868
+— val_f1:  0.347897 — val_precision:  0.362322 — val_recall  0.300103
+Validation precision improved from [0.3604778739485554] to [0.3623224520308996]. Saving model to [saved_models/weights.best_precision.from_scratch.hdf5]
+Epoch 21/500
+ - 46s - loss: 9.5156e-05 - acc: 0.9992 - precision: 0.9972 - recall: 0.9999 - val_loss: 0.1195 - val_acc: 0.6477 - val_precision: 0.3613 - val_recall: 0.3008
+
+Epoch 00021: val_loss did not improve from 0.11868
+— val_f1:  0.347451 — val_precision:  0.361494 — val_recall  0.300722
+Epoch 22/500
+ - 46s - loss: 8.8408e-05 - acc: 0.9992 - precision: 0.9974 - recall: 0.9999 - val_loss: 0.1193 - val_acc: 0.6488 - val_precision: 0.3614 - val_recall: 0.2962
+
+Epoch 00022: val_loss did not improve from 0.11868
+— val_f1:  0.346367 — val_precision:  0.361689 — val_recall  0.296182
+Epoch 23/500
+ - 46s - loss: 7.9405e-05 - acc: 0.9993 - precision: 0.9975 - recall: 0.9999 - val_loss: 0.1204 - val_acc: 0.6461 - val_precision: 0.3622 - val_recall: 0.3107
+
+Epoch 00023: val_loss did not improve from 0.11868
+— val_f1:  0.350734 — val_precision:  0.362432 — val_recall  0.310630
+Validation precision improved from [0.3623224520308996] to [0.3624322697170379]. Saving model to [saved_models/weights.best_precision.from_scratch.hdf5]
+Epoch 24/500
+ - 46s - loss: 7.4094e-05 - acc: 0.9992 - precision: 0.9974 - recall: 1.0000 - val_loss: 0.1200 - val_acc: 0.6486 - val_precision: 0.3632 - val_recall: 0.3025
+
+Epoch 00024: val_loss did not improve from 0.11868
+— val_f1:  0.349378 — val_precision:  0.363467 — val_recall  0.302477
+Validation precision improved from [0.3624322697170379] to [0.3634672619047619]. Saving model to [saved_models/weights.best_precision.from_scratch.hdf5]
+Epoch 25/500
+ - 46s - loss: 7.3332e-05 - acc: 0.9993 - precision: 0.9978 - recall: 0.9999 - val_loss: 0.1200 - val_acc: 0.6491 - val_precision: 0.3628 - val_recall: 0.2987
+
+Epoch 00025: val_loss did not improve from 0.11868
+— val_f1:  0.348021 — val_precision:  0.363021 — val_recall  0.298658
+Epoch 26/500
+ - 46s - loss: 6.6978e-05 - acc: 0.9993 - precision: 0.9975 - recall: 1.0000 - val_loss: 0.1202 - val_acc: 0.6496 - val_precision: 0.3640 - val_recall: 0.2999
+
+Epoch 00026: val_loss did not improve from 0.11868
+— val_f1:  0.349262 — val_precision:  0.364252 — val_recall  0.299897
+Validation precision improved from [0.3634672619047619] to [0.3642516921534219]. Saving model to [saved_models/weights.best_precision.from_scratch.hdf5]
+Epoch 27/500
+ - 46s - loss: 6.3042e-05 - acc: 0.9993 - precision: 0.9976 - recall: 1.0000 - val_loss: 0.1202 - val_acc: 0.6498 - val_precision: 0.3633 - val_recall: 0.2974
+
+Epoch 00027: val_loss did not improve from 0.11868
+— val_f1:  0.348118 — val_precision:  0.363613 — val_recall  0.297420
+Epoch 28/500
+ - 46s - loss: 6.0960e-05 - acc: 0.9994 - precision: 0.9979 - recall: 0.9999 - val_loss: 0.1203 - val_acc: 0.6496 - val_precision: 0.3623 - val_recall: 0.2951
+
+Epoch 00028: val_loss did not improve from 0.11868
+— val_f1:  0.346700 — val_precision:  0.362530 — val_recall  0.295150
+Epoch 29/500
+ - 46s - loss: 5.2363e-05 - acc: 0.9996 - precision: 0.9986 - recall: 0.9999 - val_loss: 0.1203 - val_acc: 0.6505 - val_precision: 0.3635 - val_recall: 0.2943
+
+Epoch 00029: val_loss did not improve from 0.11868
+— val_f1:  0.347314 — val_precision:  0.363683 — val_recall  0.294324
+Epoch 30/500
+ - 46s - loss: 5.6573e-05 - acc: 0.9994 - precision: 0.9979 - recall: 0.9999 - val_loss: 0.1203 - val_acc: 0.6507 - val_precision: 0.3625 - val_recall: 0.2903
+
+Epoch 00030: val_loss did not improve from 0.11868
+— val_f1:  0.345459 — val_precision:  0.362687 — val_recall  0.290299
+Epoch 31/500
+ - 46s - loss: 5.4816e-05 - acc: 0.9993 - precision: 0.9978 - recall: 1.0000 - val_loss: 0.1203 - val_acc: 0.6514 - val_precision: 0.3642 - val_recall: 0.2923
+
+Epoch 00031: val_loss did not improve from 0.11868
+— val_f1:  0.347246 — val_precision:  0.364385 — val_recall  0.292260
+Validation precision improved from [0.3642516921534219] to [0.36438497169325784]. Saving model to [saved_models/weights.best_precision.from_scratch.hdf5]
+Epoch 32/500
+ - 46s - loss: 5.6558e-05 - acc: 0.9993 - precision: 0.9978 - recall: 0.9999 - val_loss: 0.1206 - val_acc: 0.6505 - val_precision: 0.3622 - val_recall: 0.2908
+
+Epoch 00032: val_loss did not improve from 0.11868
+— val_f1:  0.345441 — val_precision:  0.362502 — val_recall  0.290712
+Epoch 33/500
+ - 46s - loss: 5.2378e-05 - acc: 0.9994 - precision: 0.9979 - recall: 1.0000 - val_loss: 0.1204 - val_acc: 0.6525 - val_precision: 0.3654 - val_recall: 0.2904
+
+Epoch 00033: val_loss did not improve from 0.11868
+— val_f1:  0.347596 — val_precision:  0.365597 — val_recall  0.290402
+Validation precision improved from [0.36438497169325784] to [0.3655969858386384]. Saving model to [saved_models/weights.best_precision.from_scratch.hdf5]
+Epoch 34/500
+
+Process finished with exit code -1
