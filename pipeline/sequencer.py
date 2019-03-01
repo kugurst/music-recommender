@@ -52,14 +52,17 @@ class Sequencer(object):
         good_songs, bad_songs = [], []
         good_collection = SongInfoDatabase.db.collection(database.DB_GOOD_SONGS)
         bad_collection = SongInfoDatabase.db.collection(database.DB_BAD_SONGS)
+
         total_len = len(good_collection) + len(bad_collection)
+
         for collection, song_bin, is_good_song in [(good_collection, good_songs, True),
                                                    (bad_collection, bad_songs, False)]:
             for idx in range(len(collection)):
                 record = collection.fetch(idx)
-                song_sample_id = SongInfoDatabase.SongInfoODBC.SONG_SAMPLES_ZODB_ID.get_value(record)
-                # if song_sample_id >= total_len - 1:
-                #     continue
+                song_sample_id = int(SongInfoDatabase.SongInfoODBC.SONG_SAMPLES_ZODB_ID.get_value(record))
+
+                if song_sample_id >= total_len - 1:
+                    continue
 
                 if is_good_song:
                     good_songs.append((song_sample_id, 1))
@@ -82,16 +85,14 @@ class Sequencer(object):
         np.random.shuffle(train_set)
         np.random.shuffle(validate_set)
 
-        self.validate_samples = self.calculate_total_samples(validate_set)
-
-        # self.train_sequence = DataSet(test_set)
-        # self.validate_sequence = DataSet(validate_sequence)
-        self.train_sequence, self.processes_train, self.thread_train, self.manager_train, self.input_queue_train, \
-            self.result_queue_train, self.done_queue_train = data_generator(train_set, self.batch_size)
-
-        self.validate_sequence, self.processes_validate, self.thread_validate, self.manager_validate, \
-            self.input_queue_validate, self.result_queue_validate, self.done_queue_validate = \
-            data_generator(validate_set, self.batch_size, validation_set_len=self.validate_samples)
+        self.train_sequence = SampleFeatureGenerator(train_set)
+        self.validate_sequence = SampleFeatureGenerator(validate_set, is_validation=True)
+        # self.train_sequence, self.processes_train, self.thread_train, self.manager_train, self.input_queue_train, \
+        #     self.result_queue_train, self.done_queue_train = data_generator(train_set, self.batch_size)
+        #
+        # self.validate_sequence, self.processes_validate, self.thread_validate, self.manager_validate, \
+        #     self.input_queue_validate, self.result_queue_validate, self.done_queue_validate = \
+        #     data_generator(validate_set, self.batch_size, validation_set_len=self.validate_samples)
 
         self.train_set = train_set
         self.validate_set = validate_set
@@ -249,6 +250,90 @@ def get_features(input_queue, result_queue, data_set):
         except queue.Empty:
             # break
             pass
+
+
+class SampleFeatureGenerator(Sequence):
+    def __init__(self, song_record_ids, is_validation=False):
+        self.song_record_ids = song_record_ids
+        self.is_validation = is_validation
+        self.__selected_sample_indexes = dict()  # type: dict[int, set[int]]
+
+        self.__len = len(song_record_ids)
+        self.__val_map = dict()  # type: dict[int, tuple[int, int, features.Feature]]
+
+        if is_validation:
+            idx = 0
+            for song_record_id in song_record_ids:
+                song_features = SongSamplesFeatureDB.get_db()[song_record_id[0]]
+                for sample_idx, feature in enumerate(song_features):
+                    self.__val_map[idx] = (song_record_id, sample_idx, feature)
+                    idx += 1
+            self.__len = len(self.__val_map)
+
+    def __len__(self):
+        return self.__len
+
+    def __getitem__(self, index):
+        song_record_id = self.song_record_ids[index][0]
+
+        if self.is_validation:
+            song_index, sample_index, song_features = self.__val_map[index]
+            __logger__.info("Validating song id [{}] and sample id [{}]".format(song_index, sample_index))
+        else:
+            song_index, sample_index, song_features = SongSamplesFeatureDB.get_feature(
+                song_record_id, chosen_samples=self.__selected_sample_indexes.setdefault(song_record_id, set())
+            )
+            __logger__.info("Training song id [{}] and sample id [{}]".format(song_index, sample_index))
+
+        chosen_samples = self.__selected_sample_indexes.setdefault(song_record_id, set())
+        if sample_index in chosen_samples:
+            self.__selected_sample_indexes[song_record_id] = {sample_index}
+        else:
+            chosen_samples.add(sample_index)
+
+        index_features = {}
+        index_labels = np.zeros((1,), dtype=np.float32)
+
+        for feature, should_train, feature_name, model_feature_shape in [
+            (song_features.normalize_tempo, in_use_features.USE_TEMPO, InputNames.TEMPO,
+             features.TEMPO_SHAPE),
+            (song_features.normalize_flux, in_use_features.USE_FLUX, InputNames.FLUX, features.FLUX_SHAPE),
+            (song_features.normalize_rolloff, in_use_features.USE_ROLLOFF, InputNames.ROLLOFF,
+             features.ROLLOFF_SHAPE),
+            (song_features.normalize_mel, in_use_features.USE_MEL, InputNames.MEL, features.MEL_SHAPE),
+            (song_features.normalize_contrast, in_use_features.USE_CONTRAST, InputNames.CONTRAST,
+             features.CONTRAST_SHAPE),
+            (song_features.normalize_tonnetz, in_use_features.USE_TONNETZ, InputNames.TONNETZ,
+             features.TONNETZ_SHAPE),
+            (song_features.normalize_chroma, in_use_features.USE_CHROMA, InputNames.CHROMA,
+             features.CHROMA_SHAPE),
+            (song_features.normalize_hpss, in_use_features.USE_HPSS, InputNames.HPSS, features.HPSS_SHAPE),
+            (song_features.get_fraction_rms_energy, in_use_features.USE_RMS_FRACTIONAL,
+             InputNames.RMS_FRACTIONAL, features.RMS_SHAPE),
+        ]:
+            if not should_train:
+                continue
+
+            result = feature()
+
+            if not hasattr(result, "shape"):
+                result = np.array([result])
+                if feature_name == InputNames.FLUX:
+                    pass
+                index_features[feature_name.get_nn_input_name()] = result
+            elif result.shape != model_feature_shape:
+                model_feature_input = np.zeros(model_feature_shape, dtype=np.float32)
+                model_feature_input[tuple([slice(0, n) for n in result.shape])] = result
+                index_features[feature_name.get_nn_input_name()] = model_feature_input
+            else:
+                try:
+                    index_features[feature_name.get_nn_input_name()] = result
+                except np.ComplexWarning:
+                    index_features[feature_name.get_nn_input_name()] = np.abs(result)
+
+        index_labels[0] = song_features.is_good_song
+
+        return index_features, index_labels
 
 
 class DataSet(Sequence):

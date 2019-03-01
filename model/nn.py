@@ -9,6 +9,7 @@ import sklearn
 import tensorflow as tf
 from keras import backend as K
 from keras.callbacks import ModelCheckpoint
+import keras_metrics as km
 
 from params import in_use_features
 from pipeline.features import *
@@ -348,61 +349,101 @@ def false_positive_rate(**kwargs):
     return metric
 
 
-def true_positive_rate(y_true, y_pred):
+def precision(y_true, y_pred):
+    true_positives = K.sum(K.round(K.clip(y_true * y_pred, 0, 1)))
+    predicted_positives = K.sum(K.round(K.clip(y_pred, 0, 1)))
+    return true_positives / (predicted_positives + K.epsilon())
+
+
+def recall(y_true, y_pred):
     true_positives = K.sum(K.round(K.clip(y_true * y_pred, 0, 1)))
     possible_positives = K.sum(K.round(K.clip(y_true, 0, 1)))
-
-    # return K.mean(y_pred)
-
     return true_positives / (possible_positives + K.epsilon())
 
 
-class Metrics(keras.callbacks.Callback):
+class BestPrecisionSaver(keras.callbacks.Callback):
+    def __init__(self, filepath, validate_set, validate_target, batch_size, *args, **kwargs):
+        super(self.__class__, self).__init__(*args, **kwargs)
+        self.filepath = filepath
+        self.validate_set = validate_set
+        self.validate_target = validate_target
+        self.batch_size = batch_size
+        self.best_precision = 0
+
     def on_train_begin(self, logs={}):
-        self.val_f1s = []
-        self.val_recalls = []
-        self.val_precisions = []
+        pass
 
     def on_epoch_end(self, epoch, logs={}):
-        val_predict = (np.asarray(self.model.predict(self.model.validation_data[0]))).round()
-        val_targ = self.model.validation_data[1]
-        _val_precision, _val_recall, _val_f1, _ = sklearn.metrics.precision_recall_fscore_support(
-            val_targ, val_predict, beta=0.5)
-        # _val_f1 = f1_score(val_targ, val_predict)
-        # _val_recall = recall_score(val_targ, val_predict)
-        # _val_precision = precision_score(val_targ, val_predict)
-        self.val_f1s.append(_val_f1)
-        self.val_recalls.append(_val_recall)
-        self.val_precisions.append(_val_precision)
-        print ("— val_f1: % f — val_precision: % f — val_recall % f" % (_val_f1, _val_precision, _val_recall))
-        return
+        y_pred = self.model.predict(self.validate_set, batch_size=self.batch_size, verbose=2)
+        y_pred = y_pred.flatten()
+        y_pred_label = np.round(y_pred)
+        # tn, fp, fn, tp = sklearn.metrics.confusion_matrix(self.validate_target, y_pred_label)
+
+        val_precision, val_recall, val_f1, _ = sklearn.metrics.precision_recall_fscore_support(
+            self.validate_target, y_pred_label, beta=0.5)
+        print ("— val_f1: % f — val_precision: % f — val_recall % f" % (val_f1, val_precision, val_recall))
+
+        if val_precision > self.best_precision:
+            print("Validation precision improved from [{}] to [{}]. Saving model to [{}]".format(
+                self.best_precision, val_precision, self.filepath
+            ))
+            self.best_precision = val_precision
+            self.model.save_weights(self.filepath, True)
 
 
 def compile_model(model):
-    model.compile(optimizer='Adadelta', loss='binary_crossentropy', metrics=['accuracy', true_positive_rate])
+    model.compile(optimizer='Adadelta', loss='logcosh', metrics=['accuracy', precision, recall])
 
 
-def train_model(model, sequencer, epochs=120):
+def train_model(model, sequencer, epochs=120, batch_size=64):
     # metrics = Metrics()
     checkpointer = ModelCheckpoint(filepath='saved_models/weights.best.from_scratch.hdf5', verbose=1,
                                    save_best_only=True, save_weights_only=True)
 
+    train_steps = int(math.ceil(len(sequencer.train_sequence) / batch_size))
+    validate_steps = int(math.ceil(len(sequencer.validate_sequence) / batch_size))
+
     try:
-        model.fit_generator(generator=sequencer.train_sequence(), validation_data=sequencer.validate_sequence(),
-                            steps_per_epoch=math.ceil(len(sequencer.train_set) / sequencer.batch_size),
-                            validation_steps=math.ceil(len(sequencer.validate_set) / sequencer.batch_size),
-                            class_weight={0: 0.25, 1: 1}, epochs=epochs,
-                            callbacks=[checkpointer], verbose=2,
-                            max_queue_size=multiprocessing.cpu_count() ** 2)
+        model.fit_generator(generator=sequencer.train_sequence, validation_data=sequencer.validate_sequence,
+                            epochs=epochs, callbacks=[checkpointer], verbose=2, class_weight={0: 0.25, 1: 1},
+                            max_queue_size=multiprocessing.cpu_count() ** 3, workers=multiprocessing.cpu_count(),
+                            steps_per_epoch=train_steps, validation_steps=validate_steps, shuffle=False,
+                            use_multiprocessing=True)
+        # model.fit_generator(generator=sequencer.train_sequence(), validation_data=sequencer.validate_sequence(),
+        #                     steps_per_epoch=math.ceil(len(sequencer.train_set) / sequencer.batch_size),
+        #                     validation_steps=math.ceil(len(sequencer.validate_set) / sequencer.batch_size),
+        #                     class_weight={0: 0.25, 1: 1}, epochs=epochs,
+        #                     callbacks=[checkpointer], verbose=2,
+        #                     max_queue_size=multiprocessing.cpu_count() ** 2)
     except:
         model.save_weights('saved_models/weights.emergency.from_scratch.hdf5')
         raise
-    finally:
-        # Stop generators
-        for processes in [sequencer.processes_train, sequencer.processes_validate]:
-            #: :type: multiprocessing.Process
-            for process in processes:  # type: multiprocessing.Process
-                process.terminate()
+    # finally:
+    #     # Stop generators
+    #     for processes in [sequencer.processes_train, sequencer.processes_validate]:
+    #         #: :type: multiprocessing.Process
+    #         for process in processes:  # type: multiprocessing.Process
+    #             process.terminate()
+    #
+    #     sequencer.done_queue_train.put(0)
+    #     sequencer.done_queue_validate.put(0)
 
-        sequencer.done_queue_train.put(0)
-        sequencer.done_queue_validate.put(0)
+
+def train_model_flat(model, train_set, train_target, validate_set, validate_target, epochs=4, batch_size_base=256):
+    num_gpus = int(os.environ.get(_NUM_GPUS_ENV, 1))
+    batch_size = num_gpus * batch_size_base
+
+    best_precision_checkpointer = BestPrecisionSaver('saved_models/weights.best_precision.from_scratch.hdf5',
+                                                    validate_set, validate_target, batch_size)
+    checkpointer = ModelCheckpoint(filepath='saved_models/weights.best_loss.from_scratch.hdf5', verbose=1,
+                                   save_best_only=True, save_weights_only=True)
+
+    try:
+        model.fit(
+            x=train_set, y=train_target, validation_data=(validate_set, validate_target),
+                  shuffle=True, class_weight={0: 1, 1: 0.25},
+                  batch_size=batch_size, epochs=epochs, verbose=2, callbacks=[checkpointer, best_precision_checkpointer]
+        )
+    except:
+        model.save_weights('saved_models/weights.emergency.from_scratch.hdf5')
+        raise

@@ -17,7 +17,7 @@ import six
 from BTrees import IOBTree
 from ZODB import FileStorage
 
-from pipeline.features import Feature
+from pipeline import features
 from util.class_property import ClassProperty
 
 _SONG_INFO_DATABASE_FN_ENV = "SONG_INFO_DATABASE_PATH"
@@ -32,7 +32,7 @@ DB_RECORD_FIELD = "__id"
 
 __all__ = ["SongInfoDatabase", "DB_GOOD_SONGS", "DB_BAD_SONGS", "DB_RECORD_FIELD", "update_collection_with_field",
            "remove_field_from_collection", "SongSamplesDatabase", "SongSamplesLVLDatabase", "SongSampleRecord",
-           "SongSampleZODBDatabase", "SongSamplesZODBPersist", "SongSamplesPickled"]
+           "SongSampleZODBDatabase", "SongSamplesZODBPersist", "SongSamplesPickled", "SongSamplesFeatureDB"]
 
 
 class SongSamplesFeatureDB(object):
@@ -90,7 +90,7 @@ class SongSamplesFeatureDB(object):
             idx = int(idx_regex.match(content).group(1))
             with open(os.path.join(db_dir, content), 'rb') as f:
                 feature_list = pyarrow.deserialize(f.read())
-                feature_list = [Feature.fromdict(feature) for feature in feature_list]
+                feature_list = [features.Feature.fromdict(feature) for feature in feature_list]
                 db[idx] = feature_list
 
         return db

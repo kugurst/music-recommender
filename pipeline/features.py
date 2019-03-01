@@ -157,6 +157,9 @@ class Feature(object):
         #     pass
         return res
 
+    def get_fraction_rms_energy(self):
+        return self.fractional_rms
+
     def todict(self):
         # self.song_record_id = song_record_id
         # self.sample_index = sample_index
