@@ -60,9 +60,9 @@ def gen_model(tempo=in_use_features.USE_TEMPO, flux=in_use_features.USE_FLUX, ro
             model.add(keras.layers.BatchNormalization())
             model.add(keras.layers.Activation("relu"))
 
-        # model.add(keras.layers.Dense(2048, kernel_initializer="glorot_normal", bias_initializer="glorot_normal"))
-        # model.add(keras.layers.BatchNormalization())
-        # model.add(keras.layers.Activation("relu"))
+        model.add(keras.layers.Dense(2048, kernel_initializer="glorot_normal", bias_initializer="glorot_normal"))
+        model.add(keras.layers.BatchNormalization())
+        model.add(keras.layers.Activation("relu"))
 
         if use_flat:
             model.add(keras.layers.Dense(1024, kernel_initializer="glorot_normal", bias_initializer="glorot_normal"))
@@ -139,7 +139,7 @@ def _rolloff_model(use_flat=False):
 
 
 def _mel_model(use_flat=False):
-    keep_probability = 0.25
+    keep_probability = 0.5
 
     model = keras.models.Sequential()
 
@@ -175,7 +175,7 @@ def _mel_model(use_flat=False):
 
 
 def _contrast_model(use_flat=False):
-    keep_probability = 0.25
+    keep_probability = 0.5
 
     model = keras.models.Sequential()
 
@@ -207,7 +207,7 @@ def _contrast_model(use_flat=False):
 
 
 def _tonnetz_model(use_flat=False):
-    keep_probability = 0.25
+    keep_probability = 0.5
 
     model = keras.models.Sequential()
 
@@ -241,7 +241,7 @@ def _tonnetz_model(use_flat=False):
 
 
 def _chroma_model(use_flat=False):
-    keep_probability = 0.25
+    keep_probability = 0.5
 
     model = keras.models.Sequential()
 
@@ -275,7 +275,7 @@ def _chroma_model(use_flat=False):
 
 
 def _hpss_model(use_flat=False):
-    keep_probability = 0.25
+    keep_probability = 0.5
 
     model = keras.models.Sequential()
 
@@ -443,7 +443,7 @@ def train_model_flat(model, train_set, train_target, validate_set, validate_targ
             x=train_set, y=train_target, validation_data=(validate_set, validate_target),
             shuffle=True, class_weight={0: 0.125, 1: 1},
             batch_size=batch_size, epochs=epochs, verbose=2, callbacks=[checkpointer, best_precision_checkpointer],
-            initial_epoch=92
+            initial_epoch=162
         )
     except:
         model.save_weights('saved_models/weights.emergency.from_scratch.hdf5')

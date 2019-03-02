@@ -438,12 +438,12 @@ def train_model_flat(model, train_set, train_target, validate_set, validate_targ
                                    save_best_only=True, save_weights_only=True)
 
     try:
-        model.load_weights('saved_models/weights.best_precision.from_scratch.hdf5')
+        # model.load_weights('saved_models/weights.best_precision.from_scratch.hdf5')
         model.fit(
             x=train_set, y=train_target, validation_data=(validate_set, validate_target),
             shuffle=True, class_weight={0: 0.125, 1: 1},
             batch_size=batch_size, epochs=epochs, verbose=2, callbacks=[checkpointer, best_precision_checkpointer],
-            initial_epoch=92
+            initial_epoch=0
         )
     except:
         model.save_weights('saved_models/weights.emergency.from_scratch.hdf5')
