@@ -360,14 +360,14 @@ def recall(y_true, y_pred):
     return true_positives / (possible_positives + K.epsilon())
 
 
-class BestPrecisionSaver(keras.callbacks.Callback):
+class BestTruePositiveSaver(keras.callbacks.Callback):
     def __init__(self, filepath, validate_set, validate_target, batch_size, *args, **kwargs):
         super(self.__class__, self).__init__(*args, **kwargs)
         self.filepath = filepath
         self.validate_set = validate_set
         self.validate_target = validate_target
         self.batch_size = batch_size
-        self.best_precision = 0
+        self.best_combined = 0
 
     def on_train_begin(self, logs={}):
         pass
@@ -380,14 +380,19 @@ class BestPrecisionSaver(keras.callbacks.Callback):
 
         val_precision, val_recall, val_f1, _ = sklearn.metrics.precision_recall_fscore_support(
             self.validate_target, y_pred_label, beta=0.5, labels=[0, 1], average="binary")
-        print ("— val_f1: % f — val_precision: % f — val_recall % f" % (val_f1, val_precision, val_recall))
+        val_combined = val_precision * val_f1
+        print ("— val_f1: % f — val_precision: % f — val_recall % f — val_combined % f" % (
+            val_f1, val_precision, val_recall, val_combined
+        ))
 
-        if val_precision > self.best_precision:
-            print("Validation precision improved from [{}] to [{}]. Saving model to [{}]".format(
-                self.best_precision, val_precision, self.filepath
+        if val_combined > self.best_combined:
+            print("Validation combined score improved from [{}] to [{}]. Saving model to [{}]".format(
+                self.best_combined, val_combined, self.filepath
             ))
-            self.best_precision = val_precision
+            self.best_combined = val_combined
             self.model.save_weights(self.filepath, True)
+        else:
+            print("Validation combined score did not improve from [{}]".format(self.best_combined))
 
 
 def compile_model(model):
@@ -428,22 +433,22 @@ def train_model(model, sequencer, epochs=120, batch_size=64):
     #     sequencer.done_queue_validate.put(0)
 
 
-def train_model_flat(model, train_set, train_target, validate_set, validate_target, epochs=500, batch_size_base=128):
+def train_model_flat(model, train_set, train_target, validate_set, validate_target, epochs=500, batch_size_base=512):
     num_gpus = int(os.environ.get(_NUM_GPUS_ENV, 1))
     batch_size = num_gpus * batch_size_base
 
-    best_precision_checkpointer = BestPrecisionSaver('saved_models/weights.best_precision.from_scratch.hdf5',
-                                                    validate_set, validate_target, batch_size)
+    best_tp_checkpointer = BestTruePositiveSaver('saved_models/weights.best_combined.from_scratch.hdf5',
+                                                        validate_set, validate_target, batch_size)
     checkpointer = ModelCheckpoint(filepath='saved_models/weights.best_loss.from_scratch.hdf5', verbose=1,
                                    save_best_only=True, save_weights_only=True)
 
     try:
-        model.load_weights('saved_models/weights.best_precision.from_scratch.hdf5')
+        # model.load_weights('saved_models/weights.best_combined.from_scratch.hdf5')
         model.fit(
             x=train_set, y=train_target, validation_data=(validate_set, validate_target),
             shuffle=True, class_weight={0: 0.125, 1: 1},
-            batch_size=batch_size, epochs=epochs, verbose=2, callbacks=[checkpointer, best_precision_checkpointer],
-            initial_epoch=92
+            batch_size=batch_size, epochs=epochs, verbose=2, callbacks=[checkpointer, best_tp_checkpointer],
+            initial_epoch=0
         )
     except:
         model.save_weights('saved_models/weights.emergency.from_scratch.hdf5')
