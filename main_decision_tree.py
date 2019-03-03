@@ -1,4 +1,5 @@
 import logging
+import math
 import multiprocessing
 import os
 import pickle
@@ -12,6 +13,7 @@ from sklearn import neighbors, model_selection
 # import tensorflow as tf
 
 # from main import *
+from pipeline import sequencer
 
 logging.basicConfig(level=logging.INFO, format='[%(asctime)s]%(processName)s:%(name)s:%(levelname)s - %(message)s')
 
@@ -79,7 +81,9 @@ def flatten_inputs():
 def main(flat_train_features, train_target_data, flat_validate_features, validate_target_data, test_set,
          test_target):
     with sklearn.utils.parallel_backend('multiprocessing'):
-        knn = sklearn.neighbors.KNeighborsClassifier(weights='distance', n_jobs=multiprocessing.cpu_count())
+        tree = sklearn.tree.DecisionTreeClassifier(
+            random_state=sequencer._RANDOM_SEED, min_samples_split=int(math.sqrt(30))
+        )
         # n_neighbors
 
         # clf_train_features = np.concatenate((flat_train_features, flat_validate_features), axis=None)
@@ -89,8 +93,12 @@ def main(flat_train_features, train_target_data, flat_validate_features, validat
         # test_indexes = [[idx for idx in range(len(clf_target_data))]]
 
         clf = sklearn.model_selection.GridSearchCV(
-            estimator=knn, param_grid={'n_neighbors': [5, 10, 20, 50, 100]}, scoring=make_knn_scorer(), n_jobs=-1,
-            verbose=2, error_score=0, return_train_score=True
+            estimator=tree, param_grid={
+                'max_depth': [15, 30],
+                'class_weight': [{0: 0.125, 1: 1}, {0: 0.25, 1: 1}, {0: 1, 1: 1}],
+                'max_features': ["auto", "log2"]
+            },
+            cv=2, scoring=make_model_scorer(), n_jobs=-1, verbose=2, error_score=0, return_train_score=True
         )
 
         clf.fit(flat_train_features, train_target_data)
@@ -131,37 +139,74 @@ def load_knn():
 #     pass
 
 
-def compute_precision_recall(knn, flat_feature_shape, target_data):
-    y_pred = knn.predict(flat_feature_shape)
+def compute_precision_recall(model, flat_feature_shape, target_data):
+    y_pred = model.predict(flat_feature_shape)
     y_pred = y_pred.flatten()
-    # tn, fp, fn, tp = sklearn.metrics.confusion_matrix(self.validate_target, y_pred_label)
-
-    val_precision, val_recall, val_f1, _ = sklearn.metrics.precision_recall_fscore_support(
-        target_data, y_pred, beta=0.5, labels=[0, 1], average="binary")
-    get_logger().info("— val_f1: % f — val_precision: % f — val_recall % f" % (val_f1, val_precision, val_recall))
+    return modelless_compute_precision_recall(target_data, y_pred)
 
 
-def knn_less_compute_precision_recall(y_true, y_pred, **kwargs):
+def modelless_compute_precision_recall(y_true, y_pred, **kwargs):
     val_precision, val_recall, val_f1, _ = sklearn.metrics.precision_recall_fscore_support(
         y_true.flatten(), y_pred.flatten(), beta=0.5, labels=[0, 1], average="binary")
-    get_logger().info("— val_f1: % f — val_precision: % f — val_recall % f" % (val_f1, val_precision, val_recall))
-    return val_precision
+    combined = val_precision * val_f1
+    get_logger().info("— val_f1: % f — val_precision: % f — val_recall % f — val_combined % f" % (
+        val_f1, val_precision, val_recall, combined))
+    return combined
 
 
-def make_knn_scorer():
-    return sklearn.metrics.make_scorer(knn_less_compute_precision_recall)
+def make_model_scorer():
+    return sklearn.metrics.make_scorer(modelless_compute_precision_recall)
+
+
+def train_and_validate_tf_knn(flat_train_features, train_target_data, flat_validate_features, validate_target_data,
+                              test_set, test_target):
+    feature_number = flat_train_features.shape[1]
+    train_target_data = train_target_data.reshape((train_target_data.shape[0], 1))
+
+    k = 5
+
+    x_data_train = tf.placeholder(shape=[None, feature_number], dtype=tf.float32)
+    y_data_train = tf.placeholder(shape=[None, train_target_data.shape[1]], dtype=tf.float32)
+    x_data_test = tf.placeholder(shape=[None, feature_number], dtype=tf.float32)
+
+    # manhattan distance
+    distance = tf.reduce_sum(tf.abs(tf.subtract(x_data_train, tf.expand_dims(x_data_test, 1))), axis=2)
+
+    # nearest k points
+    _, top_k_indices = tf.nn.top_k(tf.negative(distance), k=k)
+    top_k_label = tf.gather(y_data_train, top_k_indices)
+
+    sum_up_predictions = tf.reduce_sum(top_k_label, axis=1)
+    prediction = tf.argmax(sum_up_predictions, axis=1)
+
+    sess = tf.Session()
+    prediction_outcome = sess.run(prediction, feed_dict={x_data_train: flat_train_features,
+                                                         x_data_test: flat_validate_features,
+                                                         y_data_train: train_target_data})
+
+    # evaluation
+    accuracy = 0
+    for pred, actual in zip(prediction_outcome, validate_target_data):
+        if pred == np.argmax(actual):
+            accuracy += 1
+
+    print(accuracy / len(prediction_outcome))
 
 
 if __name__ == '__main__':
     get_logger().info("Retrieving features")
     flat_train_features, train_target_data, flat_validate_features, validate_target_data, test_set, \
-    test_target = flatten_inputs()
-    get_logger().info("Fitting kNN")
-    knn = main(flat_train_features, train_target_data, flat_validate_features, validate_target_data, test_set,
-               test_target)
+        test_target = flatten_inputs()
+    # get_logger().info("Fitting Tree")
+    # best_tree = main(flat_train_features, train_target_data, flat_validate_features, validate_target_data, test_set,
+    #                  test_target)
     # knn = load_knn()
-    get_logger().info("Predicting on validation data")
-    compute_precision_recall(knn, flat_validate_features, validate_target_data)
+    with open("tree.pickle", "rb") as f:
+        best_tree = pickle.load(f)
+    # get_logger().info("Predicting on validation data")
+    compute_precision_recall(best_tree, flat_validate_features, validate_target_data)
+    # with open("tree.pickle", "wb+") as f:
+    #     pickle.dump(best_tree, f, protocol=pickle.HIGHEST_PROTOCOL)
     # get_logger().info("Training TensorFlow k-NN")
     # train_and_validate_tf_knn(flat_train_features, train_target_data, flat_validate_features, validate_target_data,
     #                           test_set, test_target)
