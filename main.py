@@ -61,6 +61,11 @@ def main():
     nn.train_model_flat(model, train_data, train_target_data, validate_data, validate_target_data)
     # nn.train_model(model, sequencer)
 
+    # model.load_weights('saved_models/weights.best_combined.from_scratch.hdf5')
+    # y_pred = model.predict(validate_data, batch_size=2048, verbose=2)
+    # with open("validation_prediction.arrow", 'wb+') as f:
+    #     f.write(pyarrow.serialize(y_pred).to_buffer())
+
 
 if __name__ == "__main__":
     main()
