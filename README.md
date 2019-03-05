@@ -29,7 +29,7 @@ The link above contains intermediate files for model training and feature invest
 
 - `song_info.db`: The list of all songs being trained; including whether or not they are considered good
 - `nn_input`: A folder containing the model-ready input to use in keras training.
-- `song_features.tar.bz2`: An archive containing the `pyarrow` serialized feature samples for all 30 samples for all songs.
+- `song_zodb_samples_small_features.tar.bz2`: An archive containing the `pyarrow` serialized feature samples for all 30 samples for all songs.
 
 ### Source Code Tour
 
