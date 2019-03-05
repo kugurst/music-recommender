@@ -77,7 +77,7 @@ Additionally, when I remove songs from my library, I do not delete the digital m
 
 This filtering yielded 4025 songs.
 
-### Exploratory Visualization, Algorithms and Techniques
+### Exploratory Visualization
 
 #### Mel Spectrogram
 
@@ -109,7 +109,7 @@ The spikes sync roughly to quick color gradiations in the power spectrogram.
 
 #### Contrast
 
-Spectral Contrast is a feature created by Dan-Ning Jiang et. al.[^fn12]. Spectral contrast serves as another transformation of an FFT, but is more closely related to the chromaspectrum. Additionally, an analogue to onset detection (spectral flux) is used in determining the value of each octave bin, as opposed to summing up the bins as in a mel spectrogram. Finally, a Karhunen-Loeve Transform is performed in place of a DCT, but as the authors note, this is for the same reason that a DCT is performed; to remove relativity from the extracted features. A plotted contrast looks like:
+Spectral Contrast is a feature created by Dan-Ning Jiang et. al.[^fn12]. Spectral contrast serves as another transformation of an FFT, but is more closely related to the chroma spectrum. Additionally, an analogue to onset detection (specifically, spectral flux) is used in determining the value of each octave bin, as opposed to summing up the bins as in a mel spectrogram. Finally, a Karhunen-Loeve Transform is performed in place of a DCT, but as the authors note, this is for the same reason that a DCT is performed; to remove relativity from the extracted features. A plotted contrast looks like:
 
 ![Contrast](http://librosa.github.io/librosa/_images/librosa-feature-spectral_contrast-1.png "Retrieved from: http://librosa.github.io/librosa/generated/librosa.feature.spectral_contrast.html#id1")
 
@@ -126,6 +126,64 @@ The hope of using this feature is to ascertain how the significant power content
 #### Tempo and RMS (Fractional)
 
 For the sake of brevity, I'll discuss these two relatively simpler features in the same section. The [tempo](http://librosa.github.io/librosa/generated/librosa.beat.tempo.html) is computed based on the frequency of the onset function (spectral flux). The RMS is computed from the FFT of the song for each window. Of interest in our proposal is the significance of the 200 Hz region of a song. This is represented by computing how much of the RMS is due to frequencies around this range. Frequencies above 300 Hz and below 100 Hz of the FFT were zeroed out, and then the RMS computed again. This windows RMS was then divided by the full RMS to yield a fractional RMS; the ratio of how much energy of the total signal is due to this frequency range.
+
+### Algorithms and Techniques
+
+The features provided above are all provided by `librosa`. We feed `librosa` the samples by providing it the normalized waveform. As mentioned before, we mix the stereo down to mono; this is done by computing the average of each channel. Then, we normalize this signal relative to its max (such that each sample ranges between -1 and 1), before passing this to `librosa`. The computations are done on these 220500 `float` arrays. The features are implemented using the following `librosa` functions:
+
+- Mel Spectrogram:
+    `mel = librosa.feature.melspectrogram(y=mono_mix, sr=sample_rate, S=D, n_fft=N_FFT, hop_length=HOP_LENGTH, fmax=(HOP_LENGTH >> 1), n_mels=N_MELS, fmin=0)`
+    - The sample rate is actually retrieved from the song info stored in the database, but for all songs in our database, it is 44100 Hz.
+    - `hop_length` is how wide the window is (how many samples are contained within this window). This determines the Nyqist frequency of samples passing through the alogirthm, for those that depend on it. As the author routinely pays attention to the high frequencies in songs, `HOP_LENGTH` is set to 32768, which provides a max resolution of 16384 Hz. For a sample rate of 44100 Hz, this produces 7 different mel spectrogram computations (as well as for other computations that take a sample rate argument): `ceil(44100 * 5 / 32768)` (where `5` is the number of seconds of each audio clip).
+    - The mel spectrogram in this signature is computed using the squared magnitude of the FFT, computed by:
+        
+        ```
+        S = librosa.stft(y=mono_mix, n_fft=N_FFT, hop_length=HOP_LENGTH)
+        D = np.abs(S) ** 2
+        ```
+
+        - Where `n_fft` is the FFT size of the inner windowing function. This was chosen to be 4096 for ease of computing each FFT window before the result is properly stacked and summed for the full `hop_length`. This is what differentates a Short Time Fourier Transform (`stft`) from a typical discrete FFT implementation.
+    - `n_mel` is the number of bins in the mel frequency. The bins are spaced apart logarithmically, to mimic how a human actually hears (i.e. low frequencies are more sensitive to frequency variation (e.g. 50 Hz vs 60 Hz), but high frequencies are less sensitive (e.g. 4000 Hz vs 4050 Hz)). We use `128` bins, which we believe should provide suitable resolution for frequency analysis without blowing up the size of our inputs.
+    - `fmax` is the frequency that the highest bin of the mel spectrogram will include. As this is directly related to the number of samples passed to the FFT (divided by 2, according to the Nyqist Theorem), we set `fmax` to half of the `HOP_LENGTH`
+    - `fmin` is the frequency that the lowest bin of the mel spectrogram will include. It is worth noting that the mel spectrogram computation here uses a triangle filter for its bin computation, so the choice of 0 Hz is not made because we care about DC, but because we care about frequencies close to 0, 10 Hz and above. While human hearing range is billed at 20 Hz- 20 kHz, sub-sonic frequencies (those below 20 Hz) are actually audible with sufficient power, as illustrated in these Fletcher Munson curves:
+
+    ![Fletcher Munson curves](https://upload.wikimedia.org/wikipedia/commons/4/49/Lindos4.svg "Retrieved from: https://en.wikipedia.org/wiki/Fletcher%E2%80%93Munson_curves").
+        - The perception of low frequencies varies from person to person, with the author's own experience being that frequencies about 6 Hz and below are no longer interpreted as sound by his brain, but simply a sensation that air is moving against the eardrum.
+    - Thus, this feature is of the size `128, 7` (`number of mels, number of hops necessary to compute entire sample`).
+- Chroma Spectrum:
+    `chroma = librosa.feature.chroma_stft(S=S, sr=sample_rate, n_fft=N_FFT, hop_length=HOP_LENGTH)`
+    - As discussed in the Exploration section, the Chroma Spectrum is an alternate representation of frequencies to the Mel Spectrogram, and as thus is computed from the base FFT. We pass in the parameters used to compute the FFT for a correct calculation.
+    - This feature is of size `12, 7`, where 12 corresponds to the octave classes.
+- Spectral Flux:
+    `flux = librosa.onset.onset_strength(y=mono_mix, sr=sample_rate, hop_length=HOP_LENGTH)`
+    - Although spectral flux can be visualized with the aid of a mel spectrogram, one only need to analyze the envelope formed by the samples to compute spikes in energy. Thus, this algorithm takes the audio directly as input.
+    - This feature is of size `1, 7`; there is one flux measurement per hop.
+- Contrast
+    ```
+    contrast = librosa.feature.spectral_contrast(S=S, sr=sample_rate, n_fft=N_FFT, hop_length=HOP_LENGTH, fmin=31, n_bands=9)
+    ```
+    - As discussed above, contrast is another transformation based off of the FFT, so we feed that (and its parameters) as input. Here, we set the minimum frequency to consider to 31 Hz for two reasons:
+        1. The author really likes low-bass, so we want the model to take into account how low-bass changes.
+        2. However, really low frequencies are typically random noise in most recordings, so we want to eliminate that.
+
+        Unlike was the case in the mel spectrogram, the contrast is sensitive to randomness, so we do not want to introduce significance where there is none.
+    - `n_bands` is the number of octaves to bin the frequencies into. As the `librosa` defaults are 6, we sought to increase that to 9 as we had the hardware resources to do so. This value is subject to exploration, but we did not have the time to do so.
+    - This feature is of size `10, 7`, where `10` is the number of bands + 1. The first bin actually ranges from 0 through to the minimum frequency, while the remaining bins segment the higher frequencies.
+- Rolloff
+    `rolloff = librosa.feature.spectral_rolloff(y=mono_mix, sr=sample_rate, hop_length=HOP_LENGTH)`
+    - As discussed above, rolloff computes the frequency for which a certain percentage of energy in the total window (as determined by `HOP_LENGTH`). We use the function default of 85% (subject to exploration that we did not have time for).
+    - We can feed `rolloff` the FFT computation, but we opt here to use a smaller sliding window for the internal computation of the STFT (the default is 2048) for more resolution in the computation of rolloff. Thus, we pass it the audio signal.
+    - This feature is of size `1, 7`; 7 rolloff measurements for each hop and the frequency representing the cutoff.
+- Tempo:
+    `tempo = librosa.beat.tempo(onset_envelope=flux, sr=sample_rate, hop_length=HOP_LENGTH)[0]`
+    - As discussed above, the tempo uses the frequency of the onset function to determine the tempo of the sample.
+    - In this signature of the `tempo` call, `librosa` aggregates the tempo of each hop, thus producing a single, average tempo.
+    - This feature is of size `1`; the tempo measurement.
+- RMS (Fractional):
+    `rms = librosa.feature.rms(S=S, hop_length=HOP_LENGTH, frame_length=HOP_LENGTH)`
+    - As discussed above, the RMS measurement computes the power of the FFT, as thus it receives the FFT as input. The rest of the computation of the fractionalized RMS is done as described above see [`compute_fractional_rms_energy` in `features.py`](pipeline/features.py) for the literal code.
+
+The output of these features are normalized between 0 and 1, as will be discussed in the "Implementation" section.
 
 ### Benchmark
 
